@@ -50,7 +50,7 @@ class FiscalPeriodCreate(BaseModel):
 
 class NumberSequenceCreate(BaseModel):
     company_id: int
-    document_type: Literal["ar_invoice", "ap_invoice", "receipt", "payment"]
+    document_type: Literal["ar_invoice", "ap_invoice", "receipt", "payment", "sales_quote", "sales_order"]
     prefix: str = ""
     next_number: int = Field(default=1, ge=1)
     padding: int = Field(default=5, ge=1, le=12)
@@ -102,3 +102,59 @@ class PaymentCreate(BaseModel):
 class AllocationCreate(BaseModel):
     invoice_id: int
     amount: Decimal = Field(gt=0)
+
+
+class PriceListLineIn(BaseModel):
+    item_id: int
+    unit_price: Decimal = Field(ge=0)
+
+
+class PriceListCreate(BaseModel):
+    company_id: int
+    code: str
+    name: str
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    valid_from: date
+    valid_until: date
+    lines: list[PriceListLineIn] = Field(min_length=1)
+
+
+class SalesLineIn(BaseModel):
+    item_id: int
+    description: str = Field(min_length=1, max_length=240)
+    quantity: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(ge=0)
+    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+
+
+class SalesQuoteCreate(BaseModel):
+    company_id: int
+    customer_id: int
+    number: str | None = None
+    quote_date: date
+    valid_until: date
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    notes: str = ""
+    lines: list[SalesLineIn] = Field(min_length=1)
+
+
+class SalesOrderCreate(BaseModel):
+    company_id: int
+    customer_id: int
+    number: str | None = None
+    order_date: date
+    promised_date: date | None = None
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    lines: list[SalesLineIn] = Field(min_length=1)
+
+
+class QuoteConversion(BaseModel):
+    order_number: str | None = None
+    order_date: date
+    promised_date: date | None = None
+
+
+class OrderConfirmation(BaseModel):
+    override_credit: bool = False
+    override_reason: str = Field(default="", max_length=240)

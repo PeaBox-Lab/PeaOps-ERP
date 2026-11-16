@@ -1,5 +1,6 @@
 ./.env.example
 ./CHANGELOG.md
+./MANIFEST.txt
 ./README.md
 ./backend/Dockerfile
 ./backend/app/__init__.py
@@ -12,16 +13,19 @@
 ./backend/app/domain/__init__.py
 ./backend/app/domain/models.py
 ./backend/app/domain/rules.py
+./backend/app/domain/sales_rules.py
 ./backend/app/main.py
 ./backend/requirements.txt
 ./backend/tests/test_accounting_rules.py
 ./backend/tests/test_finance_rules.py
+./backend/tests/test_sales_rules.py
 ./deployment/cloud/README.md
 ./deployment/local/README.md
 ./deployment/server/docker-compose.yml
 ./docs/ARCHITECTURE.md
 ./docs/FINANCE.md
 ./docs/ROADMAP.md
+./docs/SALES.md
 ./docs/SECURITY.md
 ./docs/USER_GUIDE.md
 ./frontend/index.html

@@ -1,31 +1,31 @@
-# PeaOps v0.2.0
+# PeaOps v0.3.0
 
-PeaOps is an India-first, globally-ready ERP foundation for SME and mid-market organizations. It retains one modular core across Local Desktop, Local Server and Cloud deployment paths.
+PeaOps is an India-first, globally-ready ERP foundation for SME and mid-market organizations. v0.3 extends the verified Finance core with a controlled Sales / Quote-to-Cash foundation while retaining one modular product across Local, Local Server and Cloud deployment paths.
 
-## v0.2 Finance scope
+## v0.3 Sales scope
 
-- Existing general-ledger foundation: chart of accounts, balanced journals, posting and trial balance.
-- Customer and supplier masters with GSTIN-ready fields and customer credit-limit foundation.
-- Accounts Receivable and Accounts Payable invoice models and REST endpoints.
-- Draft-to-open invoice posting with line, tax and total recalculation.
-- Receipts and supplier payments with controlled partial allocation.
-- Overpayment and cross-party allocation protection.
-- Outstanding balances and AR/AP ageing buckets: Current, 1–30, 31–60, 61–90 and 90+.
-- Fiscal-period, document-numbering and bank-account foundations.
-- Audit events for company, party, invoice, payment and allocation actions.
-- Finance command-centre UI with receivables, payables, banking and period-control views.
+- Customer and item masters reused from the shared ERP core.
+- Dated, currency-specific price lists with item prices.
+- Sales quotations with validity dates, discounts, taxes and controlled send status.
+- Quote-to-sales-order conversion that preserves commercial lines.
+- Direct sales-order creation and promised-delivery dates.
+- Order confirmation with customer credit-exposure checks.
+- Explicit, audited credit overrides requiring a reason.
+- Confirmed-order handoff to draft Accounts Receivable invoices.
+- Sales command-centre UI for pipeline, orders, promises and credit holds.
+- Existing Finance v0.2 capabilities retained: AR, AP, payments, allocations, ageing, fiscal periods, numbering, banking foundation, GL journals and trial balance.
 
 ## Quick start
 
 1. Copy `.env.example` to `.env`.
 2. Install dependencies: `pip install -r backend/requirements.txt`.
 3. Run API: `cd backend && uvicorn app.main:app --reload`.
-4. Open API docs at `http://localhost:8000/docs`.
+4. Open API documentation at `http://localhost:8000/docs`.
 5. Run UI: `cd frontend && npm install && npm run dev`.
 6. Run checks: `bash scripts/check.sh`.
 
 ## Important limitations
 
-v0.2.0 is an engineering release, not a production-ready accounting system. It does not yet include database migrations, authentication, full RBAC/segregation of duties, approval workflows, automatic GL posting from subledgers, inventory fulfilment, bank reconciliation, financial statements, backup/restore tooling or a desktop installer.
+v0.3.0 is an engineering release. Delivery and inventory fulfilment are not yet implemented; order invoice handoff creates a draft AR invoice rather than posting inventory or GL entries. Authentication, RBAC, segregation of duties, migrations, approvals, production backup/restore and a desktop installer remain future milestones.
 
-See `docs/ARCHITECTURE.md`, `docs/FINANCE.md`, `docs/ROADMAP.md`, `docs/USER_GUIDE.md`, `docs/SECURITY.md` and `CHANGELOG.md`.
+See `docs/SALES.md`, `docs/FINANCE.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/USER_GUIDE.md`, `docs/SECURITY.md` and `CHANGELOG.md`.

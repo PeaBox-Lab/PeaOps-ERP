@@ -1,24 +1,24 @@
-# User Guide - v0.2
+# User Guide - v0.3
 
-## First-use sequence
+## Sales setup
 
-1. Create the company and chart of accounts.
-2. Create fiscal periods.
-3. Configure AR/AP invoice and payment numbering sequences.
-4. Create bank accounts.
-5. Create customer and supplier party masters.
-6. Create and post AR or AP invoices.
-7. Record receipts or supplier payments.
-8. Allocate payments to matching open invoices.
-9. Review outstanding balances and ageing.
-10. Continue using balanced journals and trial balance for the general ledger foundation.
+1. Create the company, customer and item masters.
+2. Configure `sales_quote`, `sales_order` and `ar_invoice` number sequences.
+3. Create dated price lists for the selling currency.
+4. Set customer credit limits where control is required; zero currently means unlimited.
 
-## Finance lifecycle
+## Quote-to-order
 
-- Invoice: Draft → validation/recalculation → Open → Partially Paid → Paid.
-- Payment: Posted with full unallocated balance → one or more controlled allocations.
-- Journal: Draft → balance validation → Posted.
+1. Create a quotation with item, quantity, unit price, discount and tax.
+2. Send the quotation after commercial review.
+3. Convert a sent quotation to a sales order, or create an order directly.
+4. Set an optional promised-delivery date.
+5. Confirm the order. PeaOps checks open receivables, other confirmed orders and the new order against the customer limit.
+6. If authorized outside the current system, record a credit override with a reason.
+7. Hand a confirmed order to Finance to create a draft AR invoice.
 
-## API
+## Finance lifecycle retained
 
-Interactive endpoint documentation is available at `/docs` while the API is running.
+- Invoice: Draft → Open → Partially Paid → Paid.
+- Payment: Posted → controlled allocations.
+- Journal: Draft → balanced validation → Posted.

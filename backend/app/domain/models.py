@@ -268,3 +268,109 @@ class AuditEvent(Base):
     entity_type: Mapped[str] = mapped_column(String(80))
     entity_id: Mapped[str] = mapped_column(String(80))
     details: Mapped[str] = mapped_column(Text, default="")
+
+
+class PriceList(Base):
+    __tablename__ = "price_lists"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_price_list_company_code"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    code: Mapped[str] = mapped_column(String(30), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    currency: Mapped[str] = mapped_column(String(3), default="INR")
+    valid_from: Mapped[date] = mapped_column(Date)
+    valid_until: Mapped[date] = mapped_column(Date)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    lines: Mapped[list[PriceListLine]] = relationship(back_populates="price_list", cascade="all, delete-orphan")
+
+
+class PriceListLine(Base):
+    __tablename__ = "price_list_lines"
+    __table_args__ = (UniqueConstraint("price_list_id", "item_id", name="uq_price_list_item"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    price_list_id: Mapped[int] = mapped_column(ForeignKey("price_lists.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    price_list: Mapped[PriceList] = relationship(back_populates="lines")
+
+
+class SalesQuote(Base):
+    __tablename__ = "sales_quotes"
+    __table_args__ = (UniqueConstraint("company_id", "number", name="uq_quote_company_number"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("parties.id"), index=True)
+    number: Mapped[str] = mapped_column(String(40), index=True)
+    quote_date: Mapped[date] = mapped_column(Date, default=date.today)
+    valid_until: Mapped[date] = mapped_column(Date)
+    currency: Mapped[str] = mapped_column(String(3), default="INR")
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    lines: Mapped[list[SalesQuoteLine]] = relationship(back_populates="quote", cascade="all, delete-orphan")
+
+    def recalculate(self):
+        from app.domain.sales_rules import total_document
+        self.subtotal, self.discount_amount, _, self.tax_amount, self.total_amount = total_document(
+            [(x.quantity, x.unit_price, x.discount_percent, x.tax_rate) for x in self.lines]
+        )
+
+    def send(self):
+        if self.status != "draft": raise ValueError("Only draft quotations may be sent")
+        self.recalculate(); self.status = "sent"
+
+
+class SalesQuoteLine(Base):
+    __tablename__ = "sales_quote_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    quote_id: Mapped[int] = mapped_column(ForeignKey("sales_quotes.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    description: Mapped[str] = mapped_column(String(240))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    discount_percent: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=MONEY_ZERO)
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=MONEY_ZERO)
+    quote: Mapped[SalesQuote] = relationship(back_populates="lines")
+
+
+class SalesOrder(Base):
+    __tablename__ = "sales_orders"
+    __table_args__ = (UniqueConstraint("company_id", "number", name="uq_order_company_number"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("parties.id"), index=True)
+    quote_id: Mapped[int | None] = mapped_column(ForeignKey("sales_quotes.id"), nullable=True)
+    number: Mapped[str] = mapped_column(String(40), index=True)
+    order_date: Mapped[date] = mapped_column(Date, default=date.today)
+    promised_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    currency: Mapped[str] = mapped_column(String(3), default="INR")
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    lines: Mapped[list[SalesOrderLine]] = relationship(back_populates="order", cascade="all, delete-orphan")
+
+    def recalculate(self):
+        from app.domain.sales_rules import total_document
+        self.subtotal, self.discount_amount, _, self.tax_amount, self.total_amount = total_document(
+            [(x.quantity, x.unit_price, x.discount_percent, x.tax_rate) for x in self.lines]
+        )
+
+
+class SalesOrderLine(Base):
+    __tablename__ = "sales_order_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    description: Mapped[str] = mapped_column(String(240))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    discount_percent: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=MONEY_ZERO)
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(7, 4), default=MONEY_ZERO)
+    order: Mapped[SalesOrder] = relationship(back_populates="lines")

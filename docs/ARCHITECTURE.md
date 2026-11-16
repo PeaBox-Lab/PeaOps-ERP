@@ -2,7 +2,7 @@
 
 ## Strategy
 
-PeaOps is a modular monolith. Finance, Sales, Procurement, Inventory, Reporting, Workflow and Administration remain bounded modules sharing a controlled platform layer. This minimizes distributed-transaction risk while retaining future extraction boundaries.
+PeaOps remains a modular monolith. Finance and Sales are bounded domain areas sharing organization, party, item, audit and numbering foundations. This avoids premature service distribution while retaining extraction boundaries.
 
 ## Stack
 
@@ -13,15 +13,15 @@ PeaOps is a modular monolith. Finance, Sales, Procurement, Inventory, Reporting,
 - SQLite for local evaluation/development
 - REST under `/api/v1`
 
-## Finance design
+## Rule isolation
 
-v0.2 separates pure accounting/finance rules from SQLAlchemy persistence. Journal balance, invoice arithmetic, allocation limits, ageing and numbering can be validated without a database. API routes enforce company, party and document-direction constraints before mutation.
+Pure rule modules provide independently testable controls without requiring database access:
 
-## Core rules
+- `rules.py`: journals, invoice arithmetic, allocations, ageing and numbering.
+- `sales_rules.py`: line pricing, discounts, taxes, quotation validity, delivery promises and credit exposure.
 
-- Company ID is explicit in business data.
-- Posted accounting is immutable; corrections will use reversals.
-- Debits equal credits before journal posting.
-- Invoice totals are derived from line values.
-- Allocations cannot exceed outstanding or unallocated balances.
-- Authorization will be server-side when authentication/RBAC is introduced.
+Persistence models call the same rule functions used by automated tests. API routes additionally enforce company ownership, party type, item ownership and lifecycle transitions.
+
+## Integration boundaries
+
+Sales-to-Finance integration currently stops at draft AR invoice creation. Inventory reservation, delivery, cost recognition, revenue posting and payment settlement remain explicit later milestones rather than hidden side effects.
