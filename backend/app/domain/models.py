@@ -484,3 +484,79 @@ class GoodsReceiptLine(Base):
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     receipt: Mapped[GoodsReceipt] = relationship(back_populates="lines")
+
+
+class InventoryPolicy(Base):
+    __tablename__ = "inventory_policies"
+    __table_args__ = (UniqueConstraint("company_id", "item_id", "warehouse_id", name="uq_inventory_policy"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
+    tracking_mode: Mapped[str] = mapped_column(String(20), default="none")
+    reorder_point: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    reorder_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    allow_negative: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class InventoryBalance(Base):
+    __tablename__ = "inventory_balances"
+    __table_args__ = (UniqueConstraint("company_id", "item_id", "warehouse_id", name="uq_inventory_balance"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
+    on_hand_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    reserved_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    average_cost: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    inventory_value: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def available_quantity(self):
+        return Decimal(self.on_hand_quantity) - Decimal(self.reserved_quantity)
+
+
+class InventoryMovement(Base):
+    __tablename__ = "inventory_movements"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
+    movement_type: Mapped[str] = mapped_column(String(30), index=True)
+    movement_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    signed_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    movement_value: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    reference_type: Mapped[str] = mapped_column(String(40), default="manual")
+    reference_id: Mapped[str] = mapped_column(String(80), default="")
+    lot_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    serial_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class StockTransfer(Base):
+    __tablename__ = "stock_transfers"
+    __table_args__ = (UniqueConstraint("company_id", "number", name="uq_transfer_company_number"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    number: Mapped[str] = mapped_column(String(40), index=True)
+    transfer_date: Mapped[date] = mapped_column(Date, default=date.today)
+    source_warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
+    destination_warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    lines: Mapped[list[StockTransferLine]] = relationship(back_populates="transfer", cascade="all, delete-orphan")
+
+
+class StockTransferLine(Base):
+    __tablename__ = "stock_transfer_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_id: Mapped[int] = mapped_column(ForeignKey("stock_transfers.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    lot_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    serial_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    transfer: Mapped[StockTransfer] = relationship(back_populates="lines")

@@ -1,34 +1,16 @@
-import React, {useMemo, useState} from 'react';
+import React,{useMemo,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import './styles.css';
-
-type Nav='Overview'|'Requests'|'RFQs'|'Purchase orders'|'Receipts'|'Suppliers'|'Finance';
+type Nav='Overview'|'Stock ledger'|'Warehouses'|'Transfers'|'Reorder'|'Items'|'Procurement';
 type MetricProps={label:string;value:string;detail:string;tone?:string};
 const Metric=({label,value,detail,tone='green'}:MetricProps)=><div className={`metric ${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
-const sourcing=[['Requests','18','₹8.4L'],['RFQs issued','11','₹6.9L'],['Quotes received','27','3.4 / RFQ'],['Orders placed','14','₹5.8L']];
-const orders=[
- ['PO-00128','Northstar Supply','18 Nov 2026','₹1,86,400','Partial receipt'],
- ['PO-00127','Metro Components','20 Nov 2026','₹74,250','Confirmed'],
- ['PO-00126','Pioneer Packaging','17 Nov 2026','₹2,08,800','Ready to receive'],
- ['PO-00125','Axis Industrial','25 Nov 2026','₹96,500','Draft']
-];
-const comparisons=[['RFQ-00038','3 suppliers','₹18,600','₹2,450'],['RFQ-00037','4 suppliers','₹64,800','₹7,200'],['RFQ-00036','2 suppliers','₹1,12,400','₹3,600']];
-
-function App(){
- const [nav,setNav]=useState<Nav>('Overview');
- const title=useMemo(()=>nav==='Overview'?'Procurement command centre':nav,[nav]);
- return <div className="app">
-  <aside><div className="brand"><i>pea</i>Ops <b>ERP</b></div><div className="scope">PROCUREMENT • v0.4.0</div>
-   <nav>{(['Overview','Requests','RFQs','Purchase orders','Receipts','Suppliers','Finance'] as Nav[]).map(x=><button className={nav===x?'active':''} onClick={()=>setNav(x)} key={x}><span>{x==='Overview'?'⌂':x==='Requests'?'≡':x==='RFQs'?'◇':x==='Purchase orders'?'▤':x==='Receipts'?'↓':x==='Suppliers'?'◉':'↗'}</span>{x}</button>)}</nav>
-   <div className="flow"><b>PROCURE TO PAY</b><small>Request → RFQ → Compare</small><small>PO → Receipt → Invoice</small><div><i/><i/><i/><i/></div></div>
-  </aside>
-  <main><header><div><p className="eyebrow">PEAOPS / PROCUREMENT</p><h1>{title}</h1><p>Turn internal demand into compared, controlled and receipt-ready purchase orders.</p></div><div className="actions"><button className="ghost">Supplier master</button><button className="primary">+ New request</button></div></header>
-   <section className="metrics"><Metric label="Open commitments" value="₹18.7L" detail="32 confirmed purchase orders"/><Metric label="Sourcing pipeline" value="₹15.3L" detail="18 requests and 11 RFQs" tone="blue"/><Metric label="Identified savings" value="₹1.24L" detail="From supplier comparisons" tone="violet"/><Metric label="Late promises" value="4" detail="₹2.86L needs attention" tone="amber"/></section>
-   <section className="workspace"><div className="panel sourcing"><div className="panelTitle"><div><p className="eyebrow">SOURCING</p><h2>Request-to-order progression</h2></div><button className="textBtn">Open workspace →</button></div><div className="stages">{sourcing.map((x,i)=><div className="stage" key={x[0]}><span>{x[0]}</span><strong>{x[1]}</strong><small>{x[2]}</small>{i<3&&<em>›</em>}</div>)}</div><div className="cycle"><div><b>4.8 days</b><span>average request-to-order cycle</span></div><div className="bars"><i/><i/><i/><i/><i/><i/><i/></div></div></div>
-    <div className="panel compare"><div className="panelTitle"><div><p className="eyebrow">QUOTE COMPARISON</p><h2>Recent opportunities</h2></div></div>{comparisons.map(x=><div className="compareRow" key={x[0]}><div><b>{x[0]}</b><small>{x[1]}</small></div><div><b>{x[2]}</b><small>best total</small></div><span>Save {x[3]}</span></div>)}</div></section>
-   <section className="panel"><div className="panelTitle"><div><p className="eyebrow">ORDER CONTROL</p><h2>Purchase orders requiring attention</h2></div><button className="textBtn">View all orders →</button></div><table><thead><tr><th>Order</th><th>Supplier</th><th>Promise</th><th>Value</th><th>Status</th><th></th></tr></thead><tbody>{orders.map(r=><tr key={r[0]}><td><b>{r[0]}</b></td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td><td><span className={`pill ${r[4].toLowerCase().replaceAll(' ','-')}`}>{r[4]}</span></td><td>→</td></tr>)}</tbody></table></section>
-   <section className="capabilities"><div><b>✓ Purchase requests</b><small>Need, owner and required date</small></div><div><b>✓ Competitive RFQ</b><small>Supplier responses and comparison</small></div><div><b>✓ Purchase orders</b><small>Controlled confirmation and promises</small></div><div><b>✓ Partial receipts</b><small>Remaining quantity protection</small></div></section>
-  </main>
- </div>
-}
+const stocks=[['RM-1004','Aluminium Sheet','Central','1,240 EA','₹7.84L','Healthy'],['FG-2081','Control Unit','Finished Goods','84 EA','₹5.12L','Reorder'],['PK-0312','Export Carton','Central','560 EA','₹62K','Low'],['SP-4408','Drive Assembly','Service','18 EA','₹2.41L','Healthy']];
+const moves=[['Today 14:32','Receipt','RM-1004','+240','GR-00182'],['Today 12:08','Transfer','FG-2081','−12 / +12','TR-00031'],['Today 10:41','Issue','PK-0312','−80','MANUAL'],['Yesterday','Adjustment','SP-4408','+2','COUNT-14']];
+function App(){const[nav,setNav]=useState<Nav>('Overview');const title=useMemo(()=>nav==='Overview'?'Inventory command centre':nav,[nav]);return <div className="app">
+<aside><div className="brand"><i>pea</i>Ops <b>ERP</b></div><div className="scope">INVENTORY • v0.5.0</div><nav>{(['Overview','Stock ledger','Warehouses','Transfers','Reorder','Items','Procurement'] as Nav[]).map(x=><button className={nav===x?'active':''} onClick={()=>setNav(x)} key={x}><span>{x==='Overview'?'⌂':x==='Stock ledger'?'≋':x==='Warehouses'?'▦':x==='Transfers'?'⇄':x==='Reorder'?'!':x==='Items'?'◇':'↓'}</span>{x}</button>)}</nav><div className="flow"><b>STOCK CONTROL</b><small>Receive → Store → Transfer</small><small>Reserve → Issue → Reorder</small><div><i/><i/><i/><i/></div></div></aside>
+<main><header><div><p className="eyebrow">PEAOPS / INVENTORY</p><h1>{title}</h1><p>See every movement, balance, value and replenishment signal by warehouse.</p></div><div className="actions"><button className="ghost">Cycle count</button><button className="primary">+ Stock movement</button></div></header>
+<section className="metrics"><Metric label="Inventory value" value="₹42.8L" detail="Across 4 warehouses"/><Metric label="Available units" value="18,642" detail="20,104 on hand − 1,462 reserved" tone="blue"/><Metric label="Reorder alerts" value="12" detail="₹3.4L suggested replenishment" tone="amber"/><Metric label="Stock accuracy" value="98.7%" detail="Last 30-day cycle counts" tone="violet"/></section>
+<section className="workspace"><div className="panel"><div className="panelTitle"><div><p className="eyebrow">WAREHOUSE BALANCES</p><h2>Inventory requiring attention</h2></div><button className="textBtn">Open balances →</button></div><table><thead><tr><th>SKU</th><th>Item</th><th>Warehouse</th><th>On hand</th><th>Value</th><th>Status</th></tr></thead><tbody>{stocks.map(r=><tr key={r[0]}><td><b>{r[0]}</b></td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td><td>{r[4]}</td><td><span className={`pill ${r[5].toLowerCase()}`}>{r[5]}</span></td></tr>)}</tbody></table></div><div className="panel health"><p className="eyebrow">STOCK HEALTH</p><h2>Value distribution</h2><div className="donut"><b>₹42.8L</b><span>total value</span></div><div className="legend"><span><i className="raw"/>Raw materials <b>46%</b></span><span><i className="finished"/>Finished goods <b>34%</b></span><span><i className="other"/>Other <b>20%</b></span></div></div></section>
+<section className="panel"><div className="panelTitle"><div><p className="eyebrow">IMMUTABLE LEDGER</p><h2>Latest stock movements</h2></div><button className="textBtn">View full ledger →</button></div><table><thead><tr><th>Time</th><th>Movement</th><th>Item</th><th>Quantity</th><th>Reference</th></tr></thead><tbody>{moves.map(r=><tr key={r.join('')}><td>{r[0]}</td><td><b>{r[1]}</b></td><td>{r[2]}</td><td className={r[3].startsWith('+')?'positive':''}>{r[3]}</td><td>{r[4]}</td></tr>)}</tbody></table></section>
+<section className="capabilities"><div><b>✓ Immutable ledger</b><small>Every receipt, issue and adjustment</small></div><div><b>✓ Warehouse transfers</b><small>Balanced source and destination entries</small></div><div><b>✓ Weighted average</b><small>Live quantity and value foundation</small></div><div><b>✓ Reorder control</b><small>Available-stock driven alerts</small></div></section></main></div>}
 createRoot(document.getElementById('root')!).render(<App/>);

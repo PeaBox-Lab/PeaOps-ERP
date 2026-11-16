@@ -36,7 +36,7 @@ class FiscalPeriodCreate(BaseModel):
     end_date: date
 class NumberSequenceCreate(BaseModel):
     company_id: int
-    document_type: Literal["ar_invoice", "ap_invoice", "receipt", "payment", "sales_quote", "sales_order", "purchase_request", "rfq", "purchase_order", "goods_receipt"]
+    document_type: Literal["ar_invoice", "ap_invoice", "receipt", "payment", "sales_quote", "sales_order", "purchase_request", "rfq", "purchase_order", "goods_receipt", "stock_transfer"]
     prefix: str = ""
     next_number: int = Field(default=1, ge=1)
     padding: int = Field(default=5, ge=1, le=12)
@@ -204,3 +204,52 @@ class GoodsReceiptCreate(BaseModel):
     warehouse_id: int | None = None
     notes: str = ""
     lines: list[GoodsReceiptLineIn] = Field(min_length=1)
+
+
+class InventoryPolicyCreate(BaseModel):
+    company_id: int
+    item_id: int
+    warehouse_id: int
+    tracking_mode: Literal["none", "lot", "serial"] = "none"
+    reorder_point: Decimal = Field(default=Decimal("0"), ge=0)
+    reorder_quantity: Decimal = Field(default=Decimal("0"), ge=0)
+    allow_negative: bool = False
+
+
+class InventoryMovementCreate(BaseModel):
+    company_id: int
+    item_id: int
+    warehouse_id: int
+    movement_type: Literal["opening", "receipt", "issue", "adjustment_in", "adjustment_out"]
+    movement_date: date
+    quantity: Decimal = Field(gt=0)
+    unit_cost: Decimal | None = Field(default=None, ge=0)
+    reference_type: str = Field(default="manual", max_length=40)
+    reference_id: str = Field(default="", max_length=80)
+    lot_number: str | None = None
+    serial_number: str | None = None
+    notes: str = ""
+
+
+class StockTransferLineIn(BaseModel):
+    item_id: int
+    quantity: Decimal = Field(gt=0)
+    lot_number: str | None = None
+    serial_number: str | None = None
+
+
+class StockTransferCreate(BaseModel):
+    company_id: int
+    number: str | None = None
+    transfer_date: date
+    source_warehouse_id: int
+    destination_warehouse_id: int
+    notes: str = ""
+    lines: list[StockTransferLineIn] = Field(min_length=1)
+
+
+class InventoryReservation(BaseModel):
+    company_id: int
+    item_id: int
+    warehouse_id: int
+    quantity: Decimal = Field(gt=0)

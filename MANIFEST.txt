@@ -10,6 +10,7 @@
 ./backend/app/core/config.py
 ./backend/app/core/db.py
 ./backend/app/domain/__init__.py
+./backend/app/domain/inventory_rules.py
 ./backend/app/domain/models.py
 ./backend/app/domain/procurement_rules.py
 ./backend/app/domain/rules.py
@@ -18,6 +19,7 @@
 ./backend/requirements.txt
 ./backend/tests/test_accounting_rules.py
 ./backend/tests/test_finance_rules.py
+./backend/tests/test_inventory_rules.py
 ./backend/tests/test_procurement_rules.py
 ./backend/tests/test_sales_rules.py
 ./deployment/cloud/README.md
@@ -25,6 +27,7 @@
 ./deployment/server/docker-compose.yml
 ./docs/ARCHITECTURE.md
 ./docs/FINANCE.md
+./docs/INVENTORY.md
 ./docs/PROCUREMENT.md
 ./docs/ROADMAP.md
 ./docs/SALES.md

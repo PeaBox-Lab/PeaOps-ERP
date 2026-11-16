@@ -10,14 +10,16 @@ from app.domain.models import (
     PriceList, PriceListLine, SalesQuote, SalesQuoteLine, SalesOrder, SalesOrderLine,
     PurchaseRequest, PurchaseRequestLine, RequestForQuote, RequestForQuoteLine,
     SupplierQuote, SupplierQuoteLine, PurchaseOrder, PurchaseOrderLine,
-    GoodsReceipt, GoodsReceiptLine, Warehouse
+    GoodsReceipt, GoodsReceiptLine, Warehouse, InventoryPolicy, InventoryBalance,
+    InventoryMovement, StockTransfer, StockTransferLine
 )
 from .schemas import (
     CompanyCreate, AccountCreate, JournalCreate, PartyCreate, FiscalPeriodCreate,
     NumberSequenceCreate, BankAccountCreate, InvoiceCreate, PaymentCreate, AllocationCreate,
     PriceListCreate, SalesQuoteCreate, SalesOrderCreate, QuoteConversion, OrderConfirmation,
     PurchaseRequestCreate, RFQCreate, SupplierQuoteCreate, PurchaseOrderCreate,
-    SupplierQuoteConversion, GoodsReceiptCreate
+    SupplierQuoteConversion, GoodsReceiptCreate, InventoryPolicyCreate,
+    InventoryMovementCreate, StockTransferCreate, InventoryReservation
 )
 router = APIRouter(prefix="/api/v1")
 def audit(db: Session, action: str, entity_type: str, entity_id: int | str, details: str = ""):
@@ -32,7 +34,7 @@ def invoice_view(obj: Invoice):
     }
 @router.get("/health")
 def health():
-    return {"status": "ok", "product": "PeaOps", "version": "0.4.0"}
+    return {"status": "ok", "product": "PeaOps", "version": "0.5.0"}
 @router.post("/companies")
 def create_company(data: CompanyCreate, db: Session = Depends(get_db)):
     obj = Company(**data.model_dump())
@@ -516,3 +518,174 @@ def create_goods_receipt(order_id: int, data: GoodsReceiptCreate, db: Session = 
     db.commit(); db.refresh(receipt)
     return {"id": receipt.id, "number": receipt.number, "purchase_order_id": order.id,
             "order_status": order.status, "receipt_date": receipt.receipt_date}
+
+
+
+def ensure_inventory_entities(db: Session, company_id: int, item_id: int, warehouse_id: int):
+    item = db.get(Item, item_id); warehouse = db.get(Warehouse, warehouse_id)
+    if not item or item.company_id != company_id: raise HTTPException(404, "Item not found for company")
+    if not warehouse or warehouse.company_id != company_id: raise HTTPException(404, "Warehouse not found for company")
+    return item, warehouse
+
+
+def get_inventory_policy(db: Session, company_id: int, item_id: int, warehouse_id: int):
+    return db.scalar(select(InventoryPolicy).where(InventoryPolicy.company_id == company_id,
+        InventoryPolicy.item_id == item_id, InventoryPolicy.warehouse_id == warehouse_id))
+
+
+def get_inventory_balance(db: Session, company_id: int, item_id: int, warehouse_id: int):
+    balance = db.scalar(select(InventoryBalance).where(InventoryBalance.company_id == company_id,
+        InventoryBalance.item_id == item_id, InventoryBalance.warehouse_id == warehouse_id))
+    if not balance:
+        balance = InventoryBalance(company_id=company_id, item_id=item_id, warehouse_id=warehouse_id)
+        db.add(balance); db.flush()
+    return balance
+
+
+@router.post("/inventory/policies")
+def create_inventory_policy(data: InventoryPolicyCreate, db: Session = Depends(get_db)):
+    ensure_inventory_entities(db, data.company_id, data.item_id, data.warehouse_id)
+    existing = get_inventory_policy(db, data.company_id, data.item_id, data.warehouse_id)
+    if existing: raise HTTPException(409, "Inventory policy already exists for item and warehouse")
+    obj = InventoryPolicy(**data.model_dump()); db.add(obj); db.flush()
+    audit(db, "create", "inventory_policy", obj.id, f"item={obj.item_id}; warehouse={obj.warehouse_id}")
+    db.commit(); db.refresh(obj)
+    return {"id": obj.id, "item_id": obj.item_id, "warehouse_id": obj.warehouse_id,
+            "tracking_mode": obj.tracking_mode, "reorder_point": str(obj.reorder_point),
+            "reorder_quantity": str(obj.reorder_quantity), "allow_negative": obj.allow_negative}
+
+
+@router.post("/inventory/movements")
+def create_inventory_movement(data: InventoryMovementCreate, db: Session = Depends(get_db)):
+    from app.domain.inventory_rules import apply_movement, signed_quantity, weighted_average, issue_value, validate_tracking
+    ensure_inventory_entities(db, data.company_id, data.item_id, data.warehouse_id)
+    policy = get_inventory_policy(db, data.company_id, data.item_id, data.warehouse_id)
+    tracking = policy.tracking_mode if policy else "none"; allow_negative = policy.allow_negative if policy else False
+    balance = get_inventory_balance(db, data.company_id, data.item_id, data.warehouse_id)
+    try:
+        validate_tracking(tracking, data.quantity, data.lot_number, data.serial_number)
+        new_on_hand = apply_movement(balance.on_hand_quantity, data.movement_type, data.quantity, allow_negative)
+        if data.movement_type in {"opening", "receipt", "adjustment_in"}:
+            cost = data.unit_cost if data.unit_cost is not None else balance.average_cost
+            _, new_average, new_value = weighted_average(balance.on_hand_quantity, balance.average_cost, data.quantity, cost)
+            movement_value = Decimal(data.quantity) * Decimal(cost); balance.average_cost = new_average; balance.inventory_value = new_value
+        else:
+            movement_value = issue_value(data.quantity, balance.average_cost)
+            balance.inventory_value = max(Decimal(balance.inventory_value) - movement_value, Decimal("0"))
+        balance.on_hand_quantity = new_on_hand
+    except ValueError as exc: raise HTTPException(409, str(exc))
+    obj = InventoryMovement(**data.model_dump(), signed_quantity=signed_quantity(data.movement_type, data.quantity),
+                            unit_cost=data.unit_cost if data.unit_cost is not None else balance.average_cost,
+                            movement_value=movement_value)
+    db.add(obj); db.flush(); audit(db, "post", "inventory_movement", obj.id, f"type={obj.movement_type}; qty={obj.quantity}")
+    db.commit(); db.refresh(obj)
+    return {"id": obj.id, "movement_type": obj.movement_type, "quantity": str(obj.quantity),
+            "on_hand": str(balance.on_hand_quantity), "average_cost": str(balance.average_cost),
+            "inventory_value": str(balance.inventory_value)}
+
+
+@router.get("/inventory/balances")
+def list_inventory_balances(company_id: int, warehouse_id: int | None = None, item_id: int | None = None, db: Session = Depends(get_db)):
+    from app.domain.inventory_rules import reorder_status
+    q = select(InventoryBalance).where(InventoryBalance.company_id == company_id)
+    if warehouse_id: q = q.where(InventoryBalance.warehouse_id == warehouse_id)
+    if item_id: q = q.where(InventoryBalance.item_id == item_id)
+    result=[]
+    for x in db.scalars(q.order_by(InventoryBalance.warehouse_id, InventoryBalance.item_id)).all():
+        policy = get_inventory_policy(db, company_id, x.item_id, x.warehouse_id)
+        point = policy.reorder_point if policy else Decimal("0"); qty = policy.reorder_quantity if policy else Decimal("0")
+        available, needs, suggested = reorder_status(x.on_hand_quantity, x.reserved_quantity, point, qty)
+        result.append({"item_id": x.item_id, "warehouse_id": x.warehouse_id, "on_hand": str(x.on_hand_quantity),
+                       "reserved": str(x.reserved_quantity), "available": str(available),
+                       "average_cost": str(x.average_cost), "inventory_value": str(x.inventory_value),
+                       "needs_reorder": needs, "suggested_reorder": str(suggested)})
+    return result
+
+
+@router.get("/inventory/ledger")
+def inventory_ledger(company_id: int, item_id: int | None = None, warehouse_id: int | None = None, db: Session = Depends(get_db)):
+    q = select(InventoryMovement).where(InventoryMovement.company_id == company_id)
+    if item_id: q = q.where(InventoryMovement.item_id == item_id)
+    if warehouse_id: q = q.where(InventoryMovement.warehouse_id == warehouse_id)
+    return [{"id": x.id, "movement_date": x.movement_date, "item_id": x.item_id,
+             "warehouse_id": x.warehouse_id, "movement_type": x.movement_type,
+             "quantity": str(x.quantity), "signed_quantity": str(x.signed_quantity),
+             "unit_cost": str(x.unit_cost), "movement_value": str(x.movement_value),
+             "reference_type": x.reference_type, "reference_id": x.reference_id,
+             "lot_number": x.lot_number, "serial_number": x.serial_number}
+            for x in db.scalars(q.order_by(InventoryMovement.movement_date, InventoryMovement.id)).all()]
+
+
+@router.post("/inventory/reservations")
+def reserve_inventory(data: InventoryReservation, db: Session = Depends(get_db)):
+    ensure_inventory_entities(db, data.company_id, data.item_id, data.warehouse_id)
+    balance = get_inventory_balance(db, data.company_id, data.item_id, data.warehouse_id)
+    available = Decimal(balance.on_hand_quantity) - Decimal(balance.reserved_quantity)
+    if data.quantity > available: raise HTTPException(409, "Reservation exceeds available stock")
+    balance.reserved_quantity = Decimal(balance.reserved_quantity) + data.quantity
+    audit(db, "reserve", "inventory_balance", balance.id, f"quantity={data.quantity}")
+    db.commit()
+    return {"item_id": data.item_id, "warehouse_id": data.warehouse_id,
+            "reserved": str(balance.reserved_quantity), "available": str(Decimal(balance.on_hand_quantity)-Decimal(balance.reserved_quantity))}
+
+
+@router.post("/stock-transfers")
+def create_stock_transfer(data: StockTransferCreate, db: Session = Depends(get_db)):
+    if data.source_warehouse_id == data.destination_warehouse_id: raise HTTPException(400, "Transfer warehouses must differ")
+    for item_id in {x.item_id for x in data.lines}:
+        ensure_inventory_entities(db, data.company_id, item_id, data.source_warehouse_id)
+        ensure_inventory_entities(db, data.company_id, item_id, data.destination_warehouse_id)
+    number = data.number or next_number(db, data.company_id, "stock_transfer")
+    obj = StockTransfer(company_id=data.company_id, number=number, transfer_date=data.transfer_date,
+                        source_warehouse_id=data.source_warehouse_id, destination_warehouse_id=data.destination_warehouse_id,
+                        notes=data.notes, lines=[StockTransferLine(**x.model_dump()) for x in data.lines])
+    db.add(obj); db.flush(); audit(db, "create", "stock_transfer", obj.id, obj.number)
+    db.commit(); db.refresh(obj)
+    return {"id": obj.id, "number": obj.number, "status": obj.status}
+
+
+@router.post("/stock-transfers/{transfer_id}/post")
+def post_stock_transfer(transfer_id: int, db: Session = Depends(get_db)):
+    from app.domain.inventory_rules import apply_movement, issue_value, validate_tracking
+    obj = db.scalar(select(StockTransfer).options(selectinload(StockTransfer.lines)).where(StockTransfer.id == transfer_id))
+    if not obj: raise HTTPException(404, "Stock transfer not found")
+    if obj.status != "draft": raise HTTPException(409, "Only draft transfers may be posted")
+    prepared=[]
+    try:
+        for line in obj.lines:
+            source = get_inventory_balance(db, obj.company_id, line.item_id, obj.source_warehouse_id)
+            destination = get_inventory_balance(db, obj.company_id, line.item_id, obj.destination_warehouse_id)
+            source_policy = get_inventory_policy(db, obj.company_id, line.item_id, obj.source_warehouse_id)
+            dest_policy = get_inventory_policy(db, obj.company_id, line.item_id, obj.destination_warehouse_id)
+            validate_tracking(source_policy.tracking_mode if source_policy else "none", line.quantity, line.lot_number, line.serial_number)
+            validate_tracking(dest_policy.tracking_mode if dest_policy else "none", line.quantity, line.lot_number, line.serial_number)
+            source_after = apply_movement(source.on_hand_quantity, "transfer_out", line.quantity, source_policy.allow_negative if source_policy else False)
+            destination_after = apply_movement(destination.on_hand_quantity, "transfer_in", line.quantity, True)
+            value = issue_value(line.quantity, source.average_cost)
+            prepared.append((line, source, destination, source_after, destination_after, value))
+        for line, source, destination, source_after, destination_after, value in prepared:
+            source.on_hand_quantity=source_after; source.inventory_value=max(Decimal(source.inventory_value)-value,Decimal("0"))
+            old_dest_qty=Decimal(destination.on_hand_quantity); old_dest_val=Decimal(destination.inventory_value)
+            destination.on_hand_quantity=destination_after; destination.inventory_value=old_dest_val+value
+            destination.average_cost=((destination.inventory_value/destination.on_hand_quantity).quantize(Decimal("0.01")) if destination.on_hand_quantity else Decimal("0"))
+            for movement_type, warehouse_id, signed in [("transfer_out",obj.source_warehouse_id,-Decimal(line.quantity)),("transfer_in",obj.destination_warehouse_id,Decimal(line.quantity))]:
+                db.add(InventoryMovement(company_id=obj.company_id,item_id=line.item_id,warehouse_id=warehouse_id,
+                    movement_type=movement_type,movement_date=obj.transfer_date,quantity=line.quantity,signed_quantity=signed,
+                    unit_cost=source.average_cost,movement_value=value,reference_type="stock_transfer",reference_id=str(obj.id),
+                    lot_number=line.lot_number,serial_number=line.serial_number,notes=obj.notes))
+        obj.status="posted"; audit(db,"post","stock_transfer",obj.id,obj.number); db.commit()
+    except ValueError as exc: raise HTTPException(409, str(exc))
+    return {"id": obj.id, "number": obj.number, "status": obj.status}
+
+
+@router.get("/inventory/reorder-alerts")
+def reorder_alerts(company_id: int, db: Session = Depends(get_db)):
+    from app.domain.inventory_rules import reorder_status
+    policies = db.scalars(select(InventoryPolicy).where(InventoryPolicy.company_id == company_id, InventoryPolicy.reorder_quantity > 0)).all()
+    alerts=[]
+    for policy in policies:
+        balance=get_inventory_balance(db, company_id, policy.item_id, policy.warehouse_id)
+        available, needs, suggested=reorder_status(balance.on_hand_quantity,balance.reserved_quantity,policy.reorder_point,policy.reorder_quantity)
+        if needs: alerts.append({"item_id":policy.item_id,"warehouse_id":policy.warehouse_id,"available":str(available),
+                                 "reorder_point":str(policy.reorder_point),"suggested_quantity":str(suggested)})
+    return alerts

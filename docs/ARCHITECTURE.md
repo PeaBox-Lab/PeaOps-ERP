@@ -2,7 +2,7 @@
 
 ## Strategy
 
-PeaOps remains a modular monolith. Finance, Sales and Procurement are bounded domain areas sharing organization, party, item, warehouse, audit and numbering foundations. This avoids premature service distribution while retaining future extraction boundaries.
+PeaOps remains a modular monolith. Finance, Sales, Procurement and Inventory are bounded domain areas sharing organization, party, item, warehouse, audit and numbering foundations.
 
 ## Stack
 
@@ -15,14 +15,15 @@ PeaOps remains a modular monolith. Finance, Sales and Procurement are bounded do
 
 ## Rule isolation
 
-Pure rule modules provide independently testable controls without requiring database access:
+- `rules.py`: journals, invoices, allocations, ageing and numbering.
+- `sales_rules.py`: selling prices, validity, promises and credit exposure.
+- `procurement_rules.py`: purchase pricing, sourcing dates, quote comparison and receipt quantities.
+- `inventory_rules.py`: signed movements, negative-stock control, weighted-average valuation, transfers, tracking and reorder logic.
 
-- `rules.py`: journals, invoice arithmetic, allocations, ageing and numbering.
-- `sales_rules.py`: selling prices, discounts, taxes, validity, delivery promises and credit exposure.
-- `procurement_rules.py`: purchase pricing, sourcing dates, quote recommendation and receipt quantity controls.
+## Inventory consistency
 
-Persistence models call these rule functions. API routes additionally enforce company ownership, supplier/customer type, item ownership, source-document status and lifecycle transitions.
+Inventory movements are append-only business records. Balance updates and movement creation occur in one database transaction. Transfers validate every line before applying source and destination changes. Production hardening still requires row locking, idempotency keys, migrations and concurrency tests.
 
 ## Integration boundaries
 
-Procurement currently stops at quantity-controlled goods receipt. Stock-ledger movement, valuation, AP three-way match and GL posting remain explicit v0.5-v0.6 integration work rather than hidden side effects.
+v0.5 exposes inventory operations but does not yet make Procurement receipts or Sales delivery automatically post stock. v0.6 will connect those document lifecycles to inventory and accounting.
