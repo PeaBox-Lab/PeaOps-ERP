@@ -1,31 +1,31 @@
-# PeaOps v0.1.0
+# PeaOps v0.2.0
 
-PeaOps is an India-first, globally-ready ERP foundation for SME/mid-market organizations. It uses one shared product core with Local Desktop, Local Server, and Cloud deployment branches.
+PeaOps is an India-first, globally-ready ERP foundation for SME and mid-market organizations. It retains one modular core across Local Desktop, Local Server and Cloud deployment paths.
 
-## v0.1 scope
-- Authentication foundation and RBAC model
-- Companies, branches, fiscal periods, currencies, departments and cost centers
-- Customers, suppliers, items, units, tax codes and warehouses
-- Finance foundation: chart of accounts, journals, balanced journal entries, posting and trial balance
-- Audit events
-- React/TypeScript operator shell
-- FastAPI REST API
-- PostgreSQL canonical database; SQLite supported for developer/local evaluation
-- Docker deployment skeletons for local/server/cloud
+## v0.2 Finance scope
 
-## Quick start (developer)
+- Existing general-ledger foundation: chart of accounts, balanced journals, posting and trial balance.
+- Customer and supplier masters with GSTIN-ready fields and customer credit-limit foundation.
+- Accounts Receivable and Accounts Payable invoice models and REST endpoints.
+- Draft-to-open invoice posting with line, tax and total recalculation.
+- Receipts and supplier payments with controlled partial allocation.
+- Overpayment and cross-party allocation protection.
+- Outstanding balances and AR/AP ageing buckets: Current, 1–30, 31–60, 61–90 and 90+.
+- Fiscal-period, document-numbering and bank-account foundations.
+- Audit events for company, party, invoice, payment and allocation actions.
+- Finance command-centre UI with receivables, payables, banking and period-control views.
+
+## Quick start
+
 1. Copy `.env.example` to `.env`.
-2. Install Python dependencies: `pip install -r backend/requirements.txt`
-3. Run API: `cd backend && uvicorn app.main:app --reload`
-4. API docs: `http://localhost:8000/docs`
-5. Frontend: `cd frontend && npm install && npm run dev`
+2. Install dependencies: `pip install -r backend/requirements.txt`.
+3. Run API: `cd backend && uvicorn app.main:app --reload`.
+4. Open API docs at `http://localhost:8000/docs`.
+5. Run UI: `cd frontend && npm install && npm run dev`.
+6. Run checks: `bash scripts/check.sh`.
 
-## Product principles
-- Modular monolith first; service extraction only when scale justifies it.
-- Posted accounting documents are immutable; correction is through reversal.
-- Every financial journal must balance debit = credit.
-- Tenant/company boundaries are represented from the beginning.
-- India localization is an extension, not hard-coded into the global core.
-- Configuration over source-code customization.
+## Important limitations
 
-See `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/USER_GUIDE.md`, `docs/SECURITY.md`, and `CHANGELOG.md`.
+v0.2.0 is an engineering release, not a production-ready accounting system. It does not yet include database migrations, authentication, full RBAC/segregation of duties, approval workflows, automatic GL posting from subledgers, inventory fulfilment, bank reconciliation, financial statements, backup/restore tooling or a desktop installer.
+
+See `docs/ARCHITECTURE.md`, `docs/FINANCE.md`, `docs/ROADMAP.md`, `docs/USER_GUIDE.md`, `docs/SECURITY.md` and `CHANGELOG.md`.

@@ -1,16 +1,24 @@
-# User Guide - v0.1
+# User Guide - v0.2
 
 ## First-use sequence
-1. Create company and base currency.
-2. Define branches, fiscal periods, departments and cost centers as modules become enabled.
-3. Build/import the chart of accounts.
-4. Create master records such as customers, suppliers, items and warehouses.
-5. Enter draft journal transactions.
-6. Validate and post a balanced journal.
-7. Review the trial balance and audit trail.
 
-## Accounting lifecycle
-Draft -> validation -> approval (workflow milestone) -> posting -> reversal if correction is required. A posted document must never be silently edited or deleted.
+1. Create the company and chart of accounts.
+2. Create fiscal periods.
+3. Configure AR/AP invoice and payment numbering sequences.
+4. Create bank accounts.
+5. Create customer and supplier party masters.
+6. Create and post AR or AP invoices.
+7. Record receipts or supplier payments.
+8. Allocate payments to matching open invoices.
+9. Review outstanding balances and ageing.
+10. Continue using balanced journals and trial balance for the general ledger foundation.
 
-## Business Process Explorer
-PeaOps will expose end-to-end processes such as Quote-to-Cash and Procure-to-Pay rather than requiring users to learn a maze of menus.
+## Finance lifecycle
+
+- Invoice: Draft → validation/recalculation → Open → Partially Paid → Paid.
+- Payment: Posted with full unallocated balance → one or more controlled allocations.
+- Journal: Draft → balance validation → Posted.
+
+## API
+
+Interactive endpoint documentation is available at `/docs` while the API is running.
