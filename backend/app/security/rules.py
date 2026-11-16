@@ -47,7 +47,7 @@ def create_access_token(subject:str,company_id:int,permissions:list[str],secret:
     if len(secret)<32:raise ValueError('Token secret must contain at least 32 characters')
     if expires_seconds<60 or expires_seconds>86400:raise ValueError('Token lifetime must be between 60 and 86400 seconds')
     issued=now or int(time.time());header={'alg':'HS256','typ':'JWT'}
-    payload={'sub':subject,'company_id':company_id,'permissions':normalize_permissions(permissions),'iat':issued,'exp':issued+expires_seconds,'jti':secrets.token_hex(12)}
+    payload={'sub':subject,'company_id':company_id,'permissions':normalize_permissions(permissions),'iat':issued,'exp':issued+expires_seconds,'jti':secrets.token_hex(12), 'typ':'access'}
     body=f'{_encode(json.dumps(header,separators=(",",":")).encode())}.{_encode(json.dumps(payload,separators=(",",":")).encode())}'
     signature=_encode(hmac.new(secret.encode(),body.encode(),hashlib.sha256).digest())
     return f'{body}.{signature}'
@@ -63,3 +63,10 @@ def decode_access_token(token:str,secret:str,now:int|None=None):
         return data
     except (ValueError,KeyError,json.JSONDecodeError) as exc:
         raise ValueError(str(exc) or 'Invalid access token')
+
+
+def create_refresh_token():
+    return secrets.token_urlsafe(48)
+
+def hash_refresh_token(token:str):
+    return hashlib.sha256(token.encode()).hexdigest()

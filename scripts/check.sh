@@ -6,4 +6,4 @@ find backend -type d -name __pycache__ -prune -exec rm -rf {} +
 find backend -type f -name '*.pyc' -delete
 rm -rf .pytest_cache
 python scripts/repository_check.py
-printf 'PeaOps v0.8 validation passed.\n'
+printf 'PeaOps v0.8.1 validation passed.\n'

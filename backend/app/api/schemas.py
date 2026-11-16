@@ -341,3 +341,24 @@ class RoleCreate(BaseModel):
 
 class UserRoleAssignment(BaseModel):
     role_id: int
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=32, max_length=300)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str = Field(min_length=32, max_length=300)
+
+
+class ApprovalCreate(BaseModel):
+    company_id: int
+    entity_type: str = Field(min_length=2, max_length=50)
+    entity_id: str = Field(min_length=1, max_length=80)
+    action: Literal["journal_post","credit_override","inventory_adjustment","supplier_match_override","role_assignment"]
+    reason: str = Field(min_length=5, max_length=500)
+
+
+class ApprovalDecision(BaseModel):
+    expected_version: int = Field(ge=1)
+    reason: str = Field(min_length=3, max_length=500)

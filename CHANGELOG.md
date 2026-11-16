@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.1 - 2026-11-16
+### Added
+- Central deny-by-default route authorization policy.
+- Revocable refresh sessions and logout.
+- Maker-checker approval records and selected SoD conflicts.
+- Optimistic approval version checks.
+- Pilot operations, session/access and SoD guides.
+- 16 pilot-hardening tests.
+### Changed
+- Product/API/frontend version advanced to 0.8.1.
+- Controlled-pilot access posture strengthened.
+
+
 ## 0.8.0 - 2026-11-16
 ### Added
 - User, role, permission, user-role and security-event models.

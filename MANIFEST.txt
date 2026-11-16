@@ -44,12 +44,16 @@
 ./backend/app/domain/sales_rules.py
 ./backend/app/main.py
 ./backend/app/security/__init__.py
+./backend/app/security/middleware.py
+./backend/app/security/policy.py
 ./backend/app/security/rules.py
 ./backend/app/security/service.py
+./backend/app/security/sod.py
 ./backend/requirements.txt
 ./backend/scripts_bootstrap_admin.py
 ./backend/tests/test_accounting_rules.py
 ./backend/tests/test_finance_rules.py
+./backend/tests/test_hardening_rules.py
 ./backend/tests/test_integration_rules.py
 ./backend/tests/test_inventory_rules.py
 ./backend/tests/test_procurement_rules.py
@@ -73,6 +77,7 @@
 ./docs/INVENTORY.md
 ./docs/PROCUREMENT.md
 ./docs/RELEASE_NOTES_v0.8.0.md
+./docs/RELEASE_NOTES_v0.8.1.md
 ./docs/ROADMAP.md
 ./docs/SALES.md
 ./docs/SECURITY.md
@@ -104,6 +109,7 @@
 ./docs/operations/BACKUP_AND_RESTORE.md
 ./docs/operations/INCIDENT_RESPONSE.md
 ./docs/operations/MONITORING_AND_MAINTENANCE.md
+./docs/operations/PILOT_OPERATIONS_GUIDE.md
 ./docs/operations/PRODUCTION_READINESS_CHECKLIST.md
 ./docs/operations/SERVER_DEPLOYMENT_GUIDE.md
 ./docs/operations/UPGRADE_AND_ROLLBACK.md
@@ -113,6 +119,8 @@
 ./docs/product/VERSION_HISTORY.md
 ./docs/security/PERMISSIONS_CATALOG.md
 ./docs/security/SECURITY_CONTROLS_MATRIX.md
+./docs/security/SEGREGATION_OF_DUTIES.md
+./docs/security/SESSION_AND_ACCESS_CONTROL.md
 ./docs/security/THREAT_MODEL.md
 ./frontend/Dockerfile
 ./frontend/index.html

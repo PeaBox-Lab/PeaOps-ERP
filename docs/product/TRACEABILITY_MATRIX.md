@@ -26,3 +26,5 @@ Pure-rule tests demonstrate deterministic business invariants. They do not repla
 | Security | US-SEC-001–003 | authentication, users, roles, runtime validation | security/runtime tests | Security Admin, System Admin |
 | Operations | US-OPS-001–003 | Alembic, health probes, backup/restore | migration/config validation | Technical Admin, DBA |
 | Open source | US-OSS-001–002 | license, community files, CI/release workflows | repository completeness checks | Developer, Maintainer |
+| Pilot access hardening | US-SEC-004–005 | sessions, route policy, logout/refresh | hardening/security tests | Security Admin, Developer |
+| Segregation/concurrency | US-SOD-001–002, US-CON-001 | approvals, role validation, version checks | hardening tests | Controller, Security Admin, Auditor |

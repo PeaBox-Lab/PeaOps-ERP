@@ -264,3 +264,34 @@ As a maintainer, I want tagged release packaging and checksums, so that users ca
 - Release workflow builds from a tag.
 - Generated package excludes secrets and caches.
 - Release notes identify limitations and migrations.
+
+## Pilot hardening
+
+### US-SEC-004 Revocable session
+As a security administrator, I want refresh sessions that can be revoked, so that logout and account response can prevent future token renewal.
+- Refresh token is random and stored only as a hash.
+- Expired or revoked session cannot refresh.
+- Logout is idempotent.
+
+### US-SEC-005 Deny-by-default route policy
+As a security owner, I want API routes protected centrally, so that a newly added endpoint is not accidentally public.
+- Public endpoints are explicitly listed.
+- Unknown reads require `data:view`.
+- Unknown writes require `data:write`.
+
+### US-SOD-001 Maker-checker approval
+As a controller, I want a different user to approve high-risk actions, so that one person cannot initiate and approve the same action.
+- Requester and approver differ.
+- Only pending records can be approved.
+- Decision stores approver and time.
+
+### US-SOD-002 Role conflict validation
+As a security administrator, I want incompatible permissions rejected, so that selected duties cannot coexist in one role.
+- Finance create/approve conflict is detected.
+- User administration/security review conflict is detected.
+
+### US-CON-001 Optimistic approval decision
+As an approver, I want stale decisions rejected, so that concurrent reviewers do not overwrite one another.
+- Client supplies expected version.
+- Matching version increments.
+- Mismatch returns conflict.

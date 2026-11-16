@@ -4,7 +4,8 @@
 |---|---|---|---|
 | 0.1–0.7 | ERP foundation | Finance, Sales, Procurement, Inventory, Integration, Insight | Complete |
 | 0.8 | Production foundation | Auth/RBAC, migrations, server operations, GitHub/open source | Current |
-| 0.8.x | Pilot hardening | Full API authorization, fixes, compatibility, recovery drills | Next |
+| 0.8.1 | Pilot hardening | Route policy, revocable sessions, SoD and concurrency foundations | Current |
+| 0.8.x | Pilot completion | Approval binding, E2E, performance and recovery drills | Next |
 | 0.9 | GA hardening | MFA/SSO, SoD, E2E/load/security, observability, signed releases | Planned |
 | 1.0 | Core GA | Supported Local Server core ERP release | Planned |
 | 1.x | Business expansion | Assets, Projects, CRM, Manufacturing, MRP, WMS, Service | Planned |

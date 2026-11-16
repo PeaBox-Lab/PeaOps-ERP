@@ -50,3 +50,9 @@ Documents progress through explicit statuses. Do not edit posted financial or in
 - Database administrator: `guides/DATABASE_ADMIN_GUIDE.md`
 - GitHub maintainer: `open-source/GITHUB_PUBLISHING_GUIDE.md`
 - Backup/recovery and incidents: `operations/BACKUP_AND_RESTORE.md`, `operations/INCIDENT_RESPONSE.md`
+
+## Pilot hardening additions
+
+- Session/access controls: `security/SESSION_AND_ACCESS_CONTROL.md`
+- Segregation of duties: `security/SEGREGATION_OF_DUTIES.md`
+- Pilot operations: `operations/PILOT_OPERATIONS_GUIDE.md`

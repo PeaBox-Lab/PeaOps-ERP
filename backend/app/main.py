@@ -4,16 +4,18 @@ from app.core.db import Base, engine
 from app.core.config import settings
 from app.api.routes import router
 from app.core.middleware import security_headers
+from app.security.middleware import authorization_policy
 from app.core.runtime import validate_runtime
 runtime_errors = validate_runtime(settings.environment, settings.database_url, settings.secret_key, settings.allowed_origins)
 if runtime_errors:
     raise RuntimeError("; ".join(runtime_errors))
 if settings.auto_create_schema:
     Base.metadata.create_all(bind=engine)
-app = FastAPI(title="PeaOps ERP API", version="0.8.0")
+app = FastAPI(title="PeaOps ERP API", version="0.8.1")
 app.add_middleware(CORSMiddleware, allow_origins=[x.strip() for x in settings.allowed_origins.split(",") if x.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.middleware("http")(security_headers)
+app.middleware("http")(authorization_policy)
 app.include_router(router)
 @app.get("/")
 def root():
-    return {"product": "PeaOps", "version": "0.8.0", "message": "Production foundation operating core", "docs": "/docs"}
+    return {"product": "PeaOps", "version": "0.8.1", "message": "Pilot hardening operating core", "docs": "/docs"}

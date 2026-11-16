@@ -10,7 +10,7 @@ if missing:raise SystemExit(f'Missing repository files: {missing}')
 for path in Path('.').rglob('*'):
     if path.is_file() and (path.name=='.env' or path.suffix in {'.pyc'} or '__pycache__' in path.parts):raise SystemExit(f'Forbidden generated/secret file: {path}')
 readme=Path('README.md').read_text()
-for phrase in ['v0.8.0','Apache License 2.0','controlled-pilot']:
+for phrase in ['v0.8.1','Apache License 2.0','controlled-pilot']:
     if phrase not in readme:raise SystemExit(f'README missing {phrase}')
 compose=Path('deployment/server/docker-compose.production.yml').read_text()
 for service in ['db:','migrate:','api:','web:','proxy:']:

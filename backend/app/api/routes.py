@@ -6,8 +6,9 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session, selectinload
 from app.core.db import get_db
 from app.core.config import settings
-from app.security.rules import hash_password, verify_password, create_access_token, normalize_permissions
+from app.security.rules import hash_password, verify_password, create_access_token, normalize_permissions, create_refresh_token, hash_refresh_token
 from app.security.service import permissions_for_user, require_permission
+from app.security.sod import validate_role_permissions, require_distinct_actor, require_version
 from app.domain.models import (
     Company, Account, JournalEntry, JournalLine, AuditEvent, Party, FiscalPeriod,
     NumberSequence, BankAccount, Invoice, InvoiceLine, Payment, Item,
@@ -18,7 +19,7 @@ from app.domain.models import (
     InventoryMovement, StockTransfer, StockTransferLine, IntegrationEvent, DocumentLink,
     PostingProfile, SalesDelivery, SalesDeliveryLine, SupplierInvoiceMatch,
     SavedReport, ReportRun, DataQualityFinding, User, Role, RolePermission,
-    UserRole, SecurityEvent
+    UserRole, SecurityEvent, AuthSession, ApprovalRecord
 )
 from .schemas import (
     CompanyCreate, AccountCreate, JournalCreate, PartyCreate, FiscalPeriodCreate,
@@ -29,7 +30,7 @@ from .schemas import (
     InventoryMovementCreate, StockTransferCreate, InventoryReservation, PostingProfileCreate,
     SalesDeliveryCreate, IntegratedSalesInvoiceCreate, SupplierInvoiceIntegratedCreate,
     SavedReportCreate, ReportRunCreate, UserCreate, LoginRequest, RoleCreate,
-    UserRoleAssignment
+    UserRoleAssignment, RefreshRequest, LogoutRequest, ApprovalCreate, ApprovalDecision
 )
 router = APIRouter(prefix="/api/v1")
 def audit(db: Session, action: str, entity_type: str, entity_id: int | str, details: str = ""):
@@ -44,7 +45,7 @@ def invoice_view(obj: Invoice):
     }
 @router.get("/health")
 def health():
-    return {"status": "ok", "product": "PeaOps", "version": "0.8.0"}
+    return {"status": "ok", "product": "PeaOps", "version": "0.8.1"}
 @router.post("/companies")
 def create_company(data: CompanyCreate, db: Session = Depends(get_db)):
     obj = Company(**data.model_dump())
@@ -955,14 +956,14 @@ def data_quality(company_id:int,db:Session=Depends(get_db)):
 
 @router.get("/health/live")
 def live_health():
-    return {"status":"alive","product":"PeaOps","version":"0.8.0"}
+    return {"status":"alive","product":"PeaOps","version":"0.8.1"}
 
 
 @router.get("/health/ready")
 def ready_health(db:Session=Depends(get_db)):
     try:
         db.execute(select(func.count(Company.id))).scalar()
-        return {"status":"ready","database":"ok","version":"0.8.0"}
+        return {"status":"ready","database":"ok","version":"0.8.1"}
     except Exception:
         raise HTTPException(503,"Database readiness check failed")
 
@@ -980,8 +981,10 @@ def login(data:LoginRequest,db:Session=Depends(get_db)):
     user.failed_login_count=0;user.locked_until=None;user.last_login_at=now
     permissions=permissions_for_user(db,user.id)
     token=create_access_token(str(user.id),user.company_id,permissions,settings.secret_key,settings.access_token_minutes*60)
+    refresh=create_refresh_token();payload=decode_access_token(token,settings.secret_key)
+    db.add(AuthSession(user_id=user.id,token_id=payload["jti"],refresh_token_hash=hash_refresh_token(refresh),expires_at=now+timedelta(days=7)))
     db.add(SecurityEvent(company_id=user.company_id,event_type="login",username=user.username,outcome="success"));db.commit()
-    return {"access_token":token,"token_type":"bearer","expires_in":settings.access_token_minutes*60,"permissions":permissions}
+    return {"access_token":token,"refresh_token":refresh,"token_type":"bearer","expires_in":settings.access_token_minutes*60,"permissions":permissions}
 
 
 @router.post("/admin/users")
@@ -997,6 +1000,8 @@ def create_role(data:RoleCreate,db:Session=Depends(get_db),principal=Depends(req
     if int(principal['company_id'])!=data.company_id:raise HTTPException(403,"Cross-company administration denied")
     obj=Role(company_id=data.company_id,code=data.code.strip().lower(),name=data.name);db.add(obj);db.flush()
     obj_permissions=normalize_permissions(data.permissions)
+    try: validate_role_permissions(obj_permissions)
+    except ValueError as exc: raise HTTPException(409,str(exc))
     db.add_all([RolePermission(role_id=obj.id,permission=x) for x in obj_permissions]);db.add(SecurityEvent(company_id=data.company_id,event_type="role_create",username=str(principal['sub']),outcome="success",details=obj.code));db.commit();db.refresh(obj)
     return {"id":obj.id,"code":obj.code,"name":obj.name,"permissions":obj_permissions}
 
@@ -1008,3 +1013,41 @@ def assign_user_role(user_id:int,data:UserRoleAssignment,db:Session=Depends(get_
     if user.company_id!=role.company_id or user.company_id!=int(principal['company_id']):raise HTTPException(403,"Cross-company role assignment denied")
     db.add(UserRole(user_id=user.id,role_id=role.id));db.add(SecurityEvent(company_id=user.company_id,event_type="role_assign",username=user.username,outcome="success",details=role.code));db.commit()
     return {"user_id":user.id,"role_id":role.id,"assigned":True}
+
+
+@router.post("/auth/refresh")
+def refresh_access(data:RefreshRequest,db:Session=Depends(get_db)):
+    session=db.scalar(select(AuthSession).where(AuthSession.refresh_token_hash==hash_refresh_token(data.refresh_token)))
+    now=datetime.utcnow()
+    if not session or session.revoked_at or session.expires_at<=now:raise HTTPException(401,"Refresh session unavailable")
+    user=db.get(User,session.user_id)
+    if not user or not user.active:raise HTTPException(401,"User unavailable")
+    permissions=permissions_for_user(db,user.id);token=create_access_token(str(user.id),user.company_id,permissions,settings.secret_key,settings.access_token_minutes*60)
+    return {"access_token":token,"token_type":"bearer","expires_in":settings.access_token_minutes*60,"permissions":permissions}
+
+
+@router.post("/auth/logout")
+def logout(data:LogoutRequest,db:Session=Depends(get_db)):
+    session=db.scalar(select(AuthSession).where(AuthSession.refresh_token_hash==hash_refresh_token(data.refresh_token)))
+    if session and not session.revoked_at:session.revoked_at=datetime.utcnow();db.commit()
+    return {"revoked":bool(session)}
+
+
+@router.post("/approvals")
+def request_approval(data:ApprovalCreate,db:Session=Depends(get_db),principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id'])!=data.company_id:raise HTTPException(403,"Cross-company approval denied")
+    obj=ApprovalRecord(company_id=data.company_id,entity_type=data.entity_type,entity_id=data.entity_id,action=data.action,requested_by=str(principal['sub']),reason=data.reason)
+    db.add(obj);db.commit();db.refresh(obj);return {"id":obj.id,"status":obj.status,"version":obj.version}
+
+
+@router.post("/approvals/{approval_id}/approve")
+def approve_action(approval_id:int,data:ApprovalDecision,db:Session=Depends(get_db),principal=Depends(require_permission("data:approve"))):
+    obj=db.get(ApprovalRecord,approval_id)
+    if not obj:raise HTTPException(404,"Approval not found")
+    if obj.company_id!=int(principal['company_id']):raise HTTPException(403,"Cross-company approval denied")
+    if obj.status!="pending":raise HTTPException(409,"Approval is no longer pending")
+    try:
+        require_distinct_actor(obj.requested_by,str(principal['sub']),obj.action);obj.version=require_version(data.expected_version,obj.version)
+    except (PermissionError,ValueError) as exc:raise HTTPException(409,str(exc))
+    obj.status="approved";obj.approved_by=str(principal['sub']);obj.reason=data.reason;obj.decided_at=datetime.utcnow();db.commit()
+    return {"id":obj.id,"status":obj.status,"version":obj.version,"approved_by":obj.approved_by}
