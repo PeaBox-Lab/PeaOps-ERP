@@ -301,3 +301,19 @@ class SupplierInvoiceIntegratedCreate(BaseModel):
     quantity_tolerance: Decimal = Field(default=Decimal("0"), ge=0)
     price_tolerance_percent: Decimal = Field(default=Decimal("0"), ge=0)
     lines: list[SupplierInvoiceLineMatch] = Field(min_length=1)
+
+
+class SavedReportCreate(BaseModel):
+    company_id: int
+    name: str = Field(min_length=2, max_length=120)
+    report_type: Literal["income_statement","balance_sheet","trial_balance","ar_ageing","ap_ageing","sales_performance","procurement_performance","inventory_summary","integration_health"]
+    parameters: dict = {}
+    owner: str = Field(default="system", min_length=1, max_length=120)
+    shared: bool = False
+
+
+class ReportRunCreate(BaseModel):
+    company_id: int
+    report_type: Literal["income_statement","balance_sheet","trial_balance","ar_ageing","ap_ageing","sales_performance","procurement_performance","inventory_summary","integration_health"]
+    parameters: dict = {}
+    generated_by: str = Field(default="system", min_length=1, max_length=120)

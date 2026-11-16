@@ -1,28 +1,41 @@
-# User Guide - v0.6
+# PeaOps Complete User Guide - v0.7
 
-## Configure posting
+This is the navigation guide for everyone involved in selecting, implementing, administering, operating, supporting, auditing or using PeaOps.
 
-1. Complete company, accounts, customer/supplier, item and warehouse setup.
-2. Configure document number sequences, including `sales_delivery`.
-3. Create a Sales posting profile with receivable, revenue, inventory and COGS accounts.
-4. Create a Procurement posting profile with payable and inventory or expense accounts.
+## Choose your role
 
-## Quote to cash
+| Role | Start here | Primary responsibilities |
+|---|---|---|
+| Business sponsor / customer executive | `guides/EXECUTIVE_AND_CUSTOMER_GUIDE.md` | Outcomes, governance, KPIs, rollout decisions |
+| System administrator | `guides/SYSTEM_ADMIN_GUIDE.md` | Companies, masters, periods, numbering, controls |
+| Technical administrator / DevOps | `guides/TECHNICAL_ADMIN_GUIDE.md` | Configuration, database, deployment, operations |
+| Implementation consultant | `guides/IMPLEMENTATION_GUIDE.md` | Discovery, design, migration, testing, cutover |
+| Finance user / controller | `guides/FINANCE_USER_GUIDE.md` | GL, AR, AP, payments, ageing, statements |
+| Sales user / sales operations | `guides/SALES_USER_GUIDE.md` | Pricing, quotes, orders, delivery, invoicing |
+| Procurement user / buyer | `guides/PROCUREMENT_USER_GUIDE.md` | Requests, RFQs, comparison, POs, receipts |
+| Inventory / warehouse user | `guides/INVENTORY_USER_GUIDE.md` | Movements, transfers, reservations, tracking |
+| Manager / analyst | `guides/MANAGER_AND_ANALYST_GUIDE.md` | KPIs, statements, saved reports, exports |
+| Auditor / compliance reviewer | `guides/AUDITOR_GUIDE.md` | Evidence, traceability, exceptions, controls |
+| Support / service desk | `guides/SUPPORT_GUIDE.md` | Triage, diagnostics, safe recovery, escalation |
+| Developer / integration engineer | `guides/DEVELOPER_GUIDE.md` | Code structure, API, testing, extension boundaries |
+| General end user | `guides/END_USER_QUICKSTART.md` | Navigation, records, statuses, common actions |
 
-1. Confirm a sales order.
-2. Post one or more deliveries using a unique idempotency key.
-3. PeaOps issues delivered quantities from the selected warehouse.
-4. Create the integrated AR invoice using a new idempotency key.
-5. Review the linked journal when a complete Sales posting profile exists.
+## Product-wide lifecycle
 
-## Procure to pay
+1. Configure organization, accounts, parties, items and warehouses.
+2. Configure periods, numbering, inventory policy and posting profiles.
+3. Operate Sales, Procurement, Inventory and Finance documents.
+4. Use Integration commands for cross-module posting.
+5. Monitor exceptions and data quality.
+6. Review Insight reports, save views and export evidence.
 
-1. Confirm and receive a purchase order.
-2. Submit the supplier invoice with PO-line quantities and prices.
-3. Set allowed quantity and price tolerances.
-4. Review the match result.
-5. A matched invoice can create an AP journal; an exception remains visible for resolution.
+## Common status principle
 
-## Monitoring
+Documents progress through explicit statuses. Do not edit posted financial or inventory history to correct it. Use controlled follow-on or reversal processes as they are introduced. In v0.7, inspect the API response and audit/integration events before retrying a failed action.
 
-Use Integration Events to review completed or failed operations and Trace Explorer to view document relationships. Reusing a completed idempotency key returns the original result.
+## Documentation map
+
+- Module guides: `FINANCE.md`, `SALES.md`, `PROCUREMENT.md`, `INVENTORY.md`, `INTEGRATION.md`, `INSIGHT.md`
+- Product: `product/FEATURES.md`, `product/VERSION_HISTORY.md`, `product/USER_STORIES.md`, `product/TRACEABILITY_MATRIX.md`
+- Implementation: `implementation/IMPLEMENTATION_PLAYBOOK.md`, `implementation/DATA_MIGRATION_GUIDE.md`, `implementation/UAT_AND_CUTOVER.md`
+- Operations/help: `help/TROUBLESHOOTING.md`, `help/FAQ.md`, `help/GLOSSARY.md`, `help/API_WORKFLOW_EXAMPLES.md`

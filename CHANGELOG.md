@@ -1,33 +1,36 @@
 # Changelog
 
+## 0.7.0 - 2026-11-16
+### Added
+- Income-statement and balance-sheet APIs.
+- Cross-module KPIs and operational performance reports.
+- Saved reports, report runs and trial-balance CSV export.
+- Data-quality findings for configuration and integration gaps.
+- Insight command-centre interface.
+- Complete role-based user guide suite.
+- Implementation, migration, UAT/cutover and support documentation.
+- Cumulative user stories with acceptance criteria.
+- Requirements, test, role and release traceability matrix.
+- Reporting rule tests.
+### Changed
+- Product/API/frontend version advanced to 0.7.0.
+- README, architecture, roadmap, user guide, features and version history expanded.
+
 ## 0.6.0 - 2026-11-16
 ### Added
-- Idempotent integration events and document trace links.
-- Sales delivery with inventory issue and cost capture.
-- Integrated AR invoice and optional sales GL posting.
-- Supplier invoice three-way matching.
-- Integrated AP invoice and optional procurement GL posting.
-- Configurable posting profiles and tolerance controls.
-- Integration event and trace APIs.
-- Integration command-centre interface.
-- Integration rule tests for delivery, matching, idempotency and journals.
-### Changed
-- Product/API/frontend version advanced to 0.6.0.
-- Numbering expanded for sales deliveries.
-- Architecture and guides expanded for cross-module posting.
-
+- Idempotent integration, trace, delivery, matching and GL posting.
 ## 0.5.0 - 2026-11-16
 ### Added
-- Stock ledger, balances, reservations, valuation, transfers, tracking and reorder controls.
+- Stock ledger, balances, valuation, transfers and reorder.
 ## 0.4.0 - 2026-11-16
 ### Added
-- Purchase requests, RFQs, comparisons, purchase orders and receipts.
+- Procurement request-to-receipt.
 ## 0.3.0 - 2026-11-16
 ### Added
-- Sales pricing, quotations, orders, credit controls and AR handoff.
+- Sales quote-to-order and credit controls.
 ## 0.2.0 - 2026-11-16
 ### Added
-- AR/AP, payments, allocations, ageing and Finance command centre.
+- Finance AR/AP and ageing.
 ## 0.1.0 - 2026-11-16
 ### Added
-- Shared ERP core, GL foundation, audit and deployment branches.
+- ERP foundation and GL.

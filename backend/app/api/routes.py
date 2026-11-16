@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import json
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
@@ -12,7 +13,8 @@ from app.domain.models import (
     SupplierQuote, SupplierQuoteLine, PurchaseOrder, PurchaseOrderLine,
     GoodsReceipt, GoodsReceiptLine, Warehouse, InventoryPolicy, InventoryBalance,
     InventoryMovement, StockTransfer, StockTransferLine, IntegrationEvent, DocumentLink,
-    PostingProfile, SalesDelivery, SalesDeliveryLine, SupplierInvoiceMatch
+    PostingProfile, SalesDelivery, SalesDeliveryLine, SupplierInvoiceMatch,
+    SavedReport, ReportRun, DataQualityFinding
 )
 from .schemas import (
     CompanyCreate, AccountCreate, JournalCreate, PartyCreate, FiscalPeriodCreate,
@@ -21,7 +23,8 @@ from .schemas import (
     PurchaseRequestCreate, RFQCreate, SupplierQuoteCreate, PurchaseOrderCreate,
     SupplierQuoteConversion, GoodsReceiptCreate, InventoryPolicyCreate,
     InventoryMovementCreate, StockTransferCreate, InventoryReservation, PostingProfileCreate,
-    SalesDeliveryCreate, IntegratedSalesInvoiceCreate, SupplierInvoiceIntegratedCreate
+    SalesDeliveryCreate, IntegratedSalesInvoiceCreate, SupplierInvoiceIntegratedCreate,
+    SavedReportCreate, ReportRunCreate
 )
 router = APIRouter(prefix="/api/v1")
 def audit(db: Session, action: str, entity_type: str, entity_id: int | str, details: str = ""):
@@ -36,7 +39,7 @@ def invoice_view(obj: Invoice):
     }
 @router.get("/health")
 def health():
-    return {"status": "ok", "product": "PeaOps", "version": "0.6.0"}
+    return {"status": "ok", "product": "PeaOps", "version": "0.7.0"}
 @router.post("/companies")
 def create_company(data: CompanyCreate, db: Session = Depends(get_db)):
     obj = Company(**data.model_dump())
@@ -827,3 +830,119 @@ def list_integration_events(company_id:int,status:str|None=None,db:Session=Depen
     q=select(IntegrationEvent).where(IntegrationEvent.company_id==company_id)
     if status:q=q.where(IntegrationEvent.status==status)
     return [{"id":x.id,"process_type":x.process_type,"source_type":x.source_type,"source_id":x.source_id,"status":x.status,"result_type":x.result_type,"result_id":x.result_id,"details":x.details,"created_at":x.created_at,"completed_at":x.completed_at} for x in db.scalars(q.order_by(IntegrationEvent.created_at.desc())).all()]
+
+
+
+def posted_account_rows(company_id:int,db:Session):
+    q=(select(Account.id,Account.code,Account.name,Account.account_type,func.coalesce(func.sum(JournalLine.debit),0),func.coalesce(func.sum(JournalLine.credit),0))
+       .join(JournalLine,JournalLine.account_id==Account.id).join(JournalEntry,JournalEntry.id==JournalLine.entry_id)
+       .where(Account.company_id==company_id,JournalEntry.status=="posted")
+       .group_by(Account.id,Account.code,Account.name,Account.account_type).order_by(Account.code))
+    return db.execute(q).all()
+
+
+@router.get("/reports/income-statement")
+def report_income_statement(company_id:int,db:Session=Depends(get_db)):
+    from app.domain.reporting_rules import income_statement,natural_balance
+    rows=posted_account_rows(company_id,db);summary=income_statement([(x.account_type,x[4],x[5]) for x in rows])
+    detail=[{"code":x.code,"account":x.name,"account_type":x.account_type,"balance":str(natural_balance(x.account_type,x[4],x[5]))} for x in rows if x.account_type.lower() in {"revenue","income","expense","cost_of_goods_sold","cogs"}]
+    return {k:str(v) for k,v in summary.items()}|{"detail":detail}
+
+
+@router.get("/reports/balance-sheet")
+def report_balance_sheet(company_id:int,db:Session=Depends(get_db)):
+    from app.domain.reporting_rules import balance_sheet,natural_balance
+    rows=posted_account_rows(company_id,db);summary=balance_sheet([(x.account_type,x[4],x[5]) for x in rows])
+    detail=[{"code":x.code,"account":x.name,"account_type":x.account_type,"balance":str(natural_balance(x.account_type,x[4],x[5]))} for x in rows if x.account_type.lower() in {"asset","liability","equity"}]
+    return {k:(str(v) if isinstance(v,Decimal) else v) for k,v in summary.items()}|{"detail":detail}
+
+
+@router.get("/reports/kpis")
+def report_kpis(company_id:int,db:Session=Depends(get_db)):
+    from app.domain.reporting_rules import percentage,days_outstanding
+    sales=db.scalar(select(func.coalesce(func.sum(Invoice.total_amount),0)).where(Invoice.company_id==company_id,Invoice.invoice_type=="ar",Invoice.status!="void")) or Decimal("0")
+    receivables=db.scalar(select(func.coalesce(func.sum(Invoice.total_amount-Invoice.paid_amount),0)).where(Invoice.company_id==company_id,Invoice.invoice_type=="ar",Invoice.status.in_(["open","partially_paid"]))) or Decimal("0")
+    purchases=db.scalar(select(func.coalesce(func.sum(Invoice.total_amount),0)).where(Invoice.company_id==company_id,Invoice.invoice_type=="ap",Invoice.status!="void")) or Decimal("0")
+    payables=db.scalar(select(func.coalesce(func.sum(Invoice.total_amount-Invoice.paid_amount),0)).where(Invoice.company_id==company_id,Invoice.invoice_type=="ap",Invoice.status.in_(["open","partially_paid"]))) or Decimal("0")
+    inventory_value=db.scalar(select(func.coalesce(func.sum(InventoryBalance.inventory_value),0)).where(InventoryBalance.company_id==company_id)) or Decimal("0")
+    quotes=db.scalar(select(func.count(SalesQuote.id)).where(SalesQuote.company_id==company_id)) or 0
+    converted=db.scalar(select(func.count(SalesQuote.id)).where(SalesQuote.company_id==company_id,SalesQuote.status=="converted")) or 0
+    events=db.scalar(select(func.count(IntegrationEvent.id)).where(IntegrationEvent.company_id==company_id)) or 0
+    completed=db.scalar(select(func.count(IntegrationEvent.id)).where(IntegrationEvent.company_id==company_id,IntegrationEvent.status=="completed")) or 0
+    return {"sales":str(sales),"purchases":str(purchases),"receivables":str(receivables),"payables":str(payables),"inventory_value":str(inventory_value),"quote_conversion_percent":str(percentage(converted,quotes)),"integration_success_percent":str(percentage(completed,events)),"receivable_days":str(days_outstanding(receivables,sales,365)),"payable_days":str(days_outstanding(payables,purchases,365))}
+
+
+@router.get("/reports/sales-performance")
+def sales_performance(company_id:int,db:Session=Depends(get_db)):
+    q=(select(Party.id,Party.name,func.count(Invoice.id),func.coalesce(func.sum(Invoice.total_amount),0),func.coalesce(func.sum(Invoice.total_amount-Invoice.paid_amount),0))
+       .join(Invoice,Invoice.party_id==Party.id).where(Invoice.company_id==company_id,Invoice.invoice_type=="ar",Invoice.status!="void")
+       .group_by(Party.id,Party.name).order_by(func.sum(Invoice.total_amount).desc()))
+    return [{"customer_id":x[0],"customer":x[1],"invoice_count":x[2],"sales":str(x[3]),"outstanding":str(x[4])} for x in db.execute(q).all()]
+
+
+@router.get("/reports/procurement-performance")
+def procurement_performance(company_id:int,db:Session=Depends(get_db)):
+    q=(select(Party.id,Party.name,func.count(PurchaseOrder.id),func.coalesce(func.sum(PurchaseOrder.total_amount),0))
+       .join(PurchaseOrder,PurchaseOrder.supplier_id==Party.id).where(PurchaseOrder.company_id==company_id)
+       .group_by(Party.id,Party.name).order_by(func.sum(PurchaseOrder.total_amount).desc()))
+    return [{"supplier_id":x[0],"supplier":x[1],"order_count":x[2],"commitment":str(x[3])} for x in db.execute(q).all()]
+
+
+@router.get("/reports/inventory-summary")
+def inventory_summary(company_id:int,db:Session=Depends(get_db)):
+    q=(select(Warehouse.id,Warehouse.name,func.count(InventoryBalance.item_id),func.coalesce(func.sum(InventoryBalance.on_hand_quantity),0),func.coalesce(func.sum(InventoryBalance.inventory_value),0))
+       .join(InventoryBalance,InventoryBalance.warehouse_id==Warehouse.id).where(InventoryBalance.company_id==company_id)
+       .group_by(Warehouse.id,Warehouse.name).order_by(Warehouse.name))
+    return [{"warehouse_id":x[0],"warehouse":x[1],"item_count":x[2],"on_hand":str(x[3]),"inventory_value":str(x[4])} for x in db.execute(q).all()]
+
+
+@router.get("/reports/integration-health")
+def integration_health(company_id:int,db:Session=Depends(get_db)):
+    q=(select(IntegrationEvent.process_type,IntegrationEvent.status,func.count(IntegrationEvent.id)).where(IntegrationEvent.company_id==company_id).group_by(IntegrationEvent.process_type,IntegrationEvent.status))
+    return [{"process_type":x[0],"status":x[1],"count":x[2]} for x in db.execute(q).all()]
+
+
+@router.post("/reports/saved")
+def create_saved_report(data:SavedReportCreate,db:Session=Depends(get_db)):
+    from app.domain.reporting_rules import validate_report_parameters
+    try:validate_report_parameters(data.report_type,data.parameters)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    obj=SavedReport(company_id=data.company_id,name=data.name,report_type=data.report_type,parameters_json=json.dumps(data.parameters,sort_keys=True),owner=data.owner,shared=data.shared)
+    db.add(obj);db.commit();db.refresh(obj);return {"id":obj.id,"name":obj.name,"report_type":obj.report_type,"parameters":json.loads(obj.parameters_json),"owner":obj.owner,"shared":obj.shared}
+
+
+@router.get("/reports/saved")
+def list_saved_reports(company_id:int,owner:str|None=None,db:Session=Depends(get_db)):
+    q=select(SavedReport).where(SavedReport.company_id==company_id,SavedReport.active==True)
+    if owner:q=q.where((SavedReport.owner==owner)|(SavedReport.shared==True))
+    return [{"id":x.id,"name":x.name,"report_type":x.report_type,"parameters":json.loads(x.parameters_json),"owner":x.owner,"shared":x.shared} for x in db.scalars(q.order_by(SavedReport.name)).all()]
+
+
+@router.post("/reports/run")
+def record_report_run(data:ReportRunCreate,db:Session=Depends(get_db)):
+    from app.domain.reporting_rules import validate_report_parameters
+    try:validate_report_parameters(data.report_type,data.parameters)
+    except ValueError as exc:raise HTTPException(400,str(exc))
+    obj=ReportRun(company_id=data.company_id,report_type=data.report_type,parameters_json=json.dumps(data.parameters,sort_keys=True),generated_by=data.generated_by)
+    db.add(obj);db.commit();db.refresh(obj);return {"id":obj.id,"report_type":obj.report_type,"status":obj.status,"generated_at":obj.generated_at}
+
+
+@router.get("/reports/export/trial-balance.csv")
+def export_trial_balance(company_id:int,db:Session=Depends(get_db)):
+    from app.domain.reporting_rules import render_csv
+    data=trial_balance(company_id,db);csv=render_csv(["Code","Account","Debit","Credit","Balance"],[[x["code"],x["account"],x["debit"],x["credit"],x["balance"]] for x in data])
+    return {"filename":f"trial-balance-{company_id}.csv","content_type":"text/csv","content":csv}
+
+
+@router.get("/reports/data-quality")
+def data_quality(company_id:int,db:Session=Depends(get_db)):
+    findings=[]
+    accounts_without_activity=db.scalars(select(Account).where(Account.company_id==company_id,~Account.id.in_(select(JournalLine.account_id)))).all()
+    for x in accounts_without_activity:findings.append({"severity":"info","finding_type":"inactive_account","entity_type":"account","entity_id":str(x.id),"description":f"Account {x.code} has no journal activity"})
+    incomplete_profiles=db.scalars(select(PostingProfile).where(PostingProfile.company_id==company_id)).all()
+    for x in incomplete_profiles:
+        required=[x.receivable_account_id,x.revenue_account_id,x.inventory_account_id,x.cogs_account_id] if x.profile_type=="sales" else [x.payable_account_id,x.inventory_account_id or x.expense_account_id]
+        if not all(required):findings.append({"severity":"warning","finding_type":"incomplete_posting_profile","entity_type":"posting_profile","entity_id":str(x.id),"description":f"{x.profile_type.title()} posting profile is incomplete"})
+    exceptions=db.scalars(select(IntegrationEvent).where(IntegrationEvent.company_id==company_id,IntegrationEvent.status!="completed")).all()
+    for x in exceptions:findings.append({"severity":"error","finding_type":"integration_exception","entity_type":"integration_event","entity_id":str(x.id),"description":f"{x.process_type} event is {x.status}"})
+    return findings

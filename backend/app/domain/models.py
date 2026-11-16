@@ -642,3 +642,43 @@ class SupplierInvoiceMatch(Base):
     price_variance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
     details: Mapped[str] = mapped_column(Text, default="")
     matched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class SavedReport(Base):
+    __tablename__ = "saved_reports"
+    __table_args__ = (UniqueConstraint("company_id", "name", name="uq_saved_report_company_name"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    report_type: Mapped[str] = mapped_column(String(40), index=True)
+    parameters_json: Mapped[str] = mapped_column(Text, default="{}")
+    owner: Mapped[str] = mapped_column(String(120), default="system")
+    shared: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ReportRun(Base):
+    __tablename__ = "report_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    saved_report_id: Mapped[int | None] = mapped_column(ForeignKey("saved_reports.id"), nullable=True)
+    report_type: Mapped[str] = mapped_column(String(40), index=True)
+    parameters_json: Mapped[str] = mapped_column(Text, default="{}")
+    status: Mapped[str] = mapped_column(String(20), default="completed")
+    row_count: Mapped[int] = mapped_column(default=0)
+    generated_by: Mapped[str] = mapped_column(String(120), default="system")
+    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class DataQualityFinding(Base):
+    __tablename__ = "data_quality_findings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    finding_type: Mapped[str] = mapped_column(String(50), index=True)
+    severity: Mapped[str] = mapped_column(String(20), default="warning")
+    entity_type: Mapped[str] = mapped_column(String(50))
+    entity_id: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    detected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
