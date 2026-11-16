@@ -1,20 +1,22 @@
-# PeaOps v0.5.0
+# PeaOps v0.6.0
 
-PeaOps is an India-first, globally-ready ERP foundation for SME and mid-market organizations. v0.5 adds an Inventory / Stock-Control foundation to the existing Finance, Sales and Procurement modules.
+PeaOps v0.6 connects the Finance, Sales, Procurement and Inventory foundations into controlled Quote-to-Cash and Procure-to-Pay posting flows.
 
-## v0.5 Inventory scope
+## v0.6 Integration scope
 
-- Immutable stock-movement ledger for openings, receipts, issues, adjustments and transfers.
-- Warehouse/item balances with on-hand, reserved and available quantities.
-- Negative-stock prevention with an explicit per-item/warehouse policy override.
-- Weighted-average cost and inventory-value foundation.
-- Balanced inter-warehouse transfers with source and destination movements.
-- Inventory reservation controls that cannot exceed available stock.
-- Lot and serial tracking foundations, including one-unit serial movements.
-- Reorder points, reorder quantities and available-stock-driven alerts.
-- Inventory ledger, balances and reorder REST endpoints.
-- Inventory command-centre UI for value, availability, warehouse balances and movement history.
-- Finance v0.2, Sales v0.3 and Procurement v0.4 capabilities retained.
+- Idempotent integration events that prevent duplicate business posting.
+- Document links connecting orders, deliveries, receipts, invoices and journals.
+- Sales delivery against confirmed orders with inventory issue and cost capture.
+- Integrated AR invoice creation after posted delivery.
+- Configurable sales posting profiles for AR, revenue, inventory and cost of goods sold.
+- Supplier invoice creation only after purchase-order receipt.
+- Three-way match across purchase order, received quantity and supplier invoice.
+- Configurable quantity and price tolerances with explicit match exceptions.
+- Configurable procurement posting profiles for inventory/expense and AP.
+- Balanced GL journal creation when a complete posting profile is configured.
+- Integration event monitor and trace APIs.
+- Integration command-centre UI.
+- All Finance, Sales, Procurement and Inventory capabilities retained.
 
 ## Quick start
 
@@ -27,6 +29,6 @@ PeaOps is an India-first, globally-ready ERP foundation for SME and mid-market o
 
 ## Important limitations
 
-v0.5.0 is an engineering release. Procurement goods receipts and Sales delivery are not yet automatically connected to stock movements. Valuation is a weighted-average foundation rather than a closed-period costing engine. Lot/serial fields are validated but do not yet include expiry, genealogy, recall, barcode or allocation workflows. Authentication, RBAC, approvals, migrations, backup/restore and installer packaging remain future milestones.
+v0.6.0 remains an engineering release. Posting profiles must be configured for automatic GL journals; otherwise operational invoices are created without a journal. The API requires idempotency keys but production concurrency still needs database migrations, row locking and retry policies. Sales delivery currently invoices full order lines after delivery eligibility rather than milestone billing. Three-way match is line-based but does not yet support freight, landed cost, tax reconciliation or approval routing.
 
-See `docs/INVENTORY.md`, `docs/PROCUREMENT.md`, `docs/SALES.md`, `docs/FINANCE.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/USER_GUIDE.md`, `docs/SECURITY.md` and `CHANGELOG.md`.
+See `docs/INTEGRATION.md`, module guides, architecture, roadmap, user guide, security baseline and changelog.

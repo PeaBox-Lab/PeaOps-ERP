@@ -1,23 +1,28 @@
-# User Guide - v0.5
+# User Guide - v0.6
 
-## Inventory setup
+## Configure posting
 
-1. Create items and warehouses.
-2. Configure `stock_transfer` numbering.
-3. Create item/warehouse inventory policies for tracking, reorder settings and negative-stock behavior.
-4. Post opening balances with a unit cost.
+1. Complete company, accounts, customer/supplier, item and warehouse setup.
+2. Configure document number sequences, including `sales_delivery`.
+3. Create a Sales posting profile with receivable, revenue, inventory and COGS accounts.
+4. Create a Procurement posting profile with payable and inventory or expense accounts.
 
-## Daily stock control
+## Quote to cash
 
-1. Record receipts, issues or adjustments through inventory movements.
-2. Review warehouse balances: on hand, reserved, available, average cost and value.
-3. Create and post stock transfers between different warehouses.
-4. Reserve available stock when needed for downstream fulfilment.
-5. Review the immutable ledger for movement history and references.
-6. Review reorder alerts and initiate procurement manually.
+1. Confirm a sales order.
+2. Post one or more deliveries using a unique idempotency key.
+3. PeaOps issues delivered quantities from the selected warehouse.
+4. Create the integrated AR invoice using a new idempotency key.
+5. Review the linked journal when a complete Sales posting profile exists.
 
-## Tracking rules
+## Procure to pay
 
-- Lot mode requires a lot number.
-- Serial mode requires one serial number per one-unit movement.
-- Negative stock is blocked unless explicitly allowed by policy.
+1. Confirm and receive a purchase order.
+2. Submit the supplier invoice with PO-line quantities and prices.
+3. Set allowed quantity and price tolerances.
+4. Review the match result.
+5. A matched invoice can create an AP journal; an exception remains visible for resolution.
+
+## Monitoring
+
+Use Integration Events to review completed or failed operations and Trace Explorer to view document relationships. Reusing a completed idempotency key returns the original result.

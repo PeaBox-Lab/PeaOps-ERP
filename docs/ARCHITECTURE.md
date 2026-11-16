@@ -1,29 +1,20 @@
 # Architecture
 
-## Strategy
+PeaOps remains a modular monolith with Finance, Sales, Procurement, Inventory and Integration domain areas sharing organization, party, item, warehouse, audit and numbering foundations.
 
-PeaOps remains a modular monolith. Finance, Sales, Procurement and Inventory are bounded domain areas sharing organization, party, item, warehouse, audit and numbering foundations.
+## Integration architecture
 
-## Stack
+- Explicit application commands coordinate cross-module changes.
+- `IntegrationEvent` supplies replay protection and operation status.
+- `DocumentLink` supplies durable source-to-result traceability.
+- `PostingProfile` maps business posting roles to company GL accounts.
+- Operational and financial mutations share one database transaction.
+- Pure integration rules validate delivery quantities, matching and balanced posting specifications.
 
-- React + TypeScript UI
-- FastAPI / Python API
-- SQLAlchemy ORM
-- PostgreSQL for multi-user deployments
-- SQLite for local evaluation/development
-- REST under `/api/v1`
+## Transaction boundaries
 
-## Rule isolation
+Sales delivery updates inventory, writes movement history and delivery records atomically. Integrated invoicing creates subledger documents, optional GL journals and trace links atomically. Procurement matching creates the supplier invoice and match result together; an exception prevents automatic journal posting.
 
-- `rules.py`: journals, invoices, allocations, ageing and numbering.
-- `sales_rules.py`: selling prices, validity, promises and credit exposure.
-- `procurement_rules.py`: purchase pricing, sourcing dates, quote comparison and receipt quantities.
-- `inventory_rules.py`: signed movements, negative-stock control, weighted-average valuation, transfers, tracking and reorder logic.
+## Production hardening gap
 
-## Inventory consistency
-
-Inventory movements are append-only business records. Balance updates and movement creation occur in one database transaction. Transfers validate every line before applying source and destination changes. Production hardening still requires row locking, idempotency keys, migrations and concurrency tests.
-
-## Integration boundaries
-
-v0.5 exposes inventory operations but does not yet make Procurement receipts or Sales delivery automatically post stock. v0.6 will connect those document lifecycles to inventory and accounting.
+The current create-all schema approach must be replaced with migrations. Concurrent posting requires row locking or optimistic version checks. Idempotency uniqueness must be enforced and tested on PostgreSQL under parallel requests.

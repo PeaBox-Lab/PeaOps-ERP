@@ -560,3 +560,85 @@ class StockTransferLine(Base):
     lot_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
     serial_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
     transfer: Mapped[StockTransfer] = relationship(back_populates="lines")
+
+
+class IntegrationEvent(Base):
+    __tablename__ = "integration_events"
+    __table_args__ = (UniqueConstraint("company_id", "idempotency_key", name="uq_integration_idempotency"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(120), index=True)
+    process_type: Mapped[str] = mapped_column(String(40), index=True)
+    source_type: Mapped[str] = mapped_column(String(50))
+    source_id: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(20), default="processing")
+    result_type: Mapped[str] = mapped_column(String(50), default="")
+    result_id: Mapped[str] = mapped_column(String(80), default="")
+    details: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class DocumentLink(Base):
+    __tablename__ = "document_links"
+    __table_args__ = (UniqueConstraint("company_id", "source_type", "source_id", "target_type", "target_id", name="uq_document_link"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    source_type: Mapped[str] = mapped_column(String(50), index=True)
+    source_id: Mapped[str] = mapped_column(String(80), index=True)
+    target_type: Mapped[str] = mapped_column(String(50), index=True)
+    target_id: Mapped[str] = mapped_column(String(80), index=True)
+    relationship: Mapped[str] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PostingProfile(Base):
+    __tablename__ = "posting_profiles"
+    __table_args__ = (UniqueConstraint("company_id", "profile_type", name="uq_posting_profile"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    profile_type: Mapped[str] = mapped_column(String(30))
+    receivable_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    payable_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    revenue_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    inventory_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    cogs_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    expense_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+
+
+class SalesDelivery(Base):
+    __tablename__ = "sales_deliveries"
+    __table_args__ = (UniqueConstraint("company_id", "number", name="uq_delivery_company_number"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    sales_order_id: Mapped[int] = mapped_column(ForeignKey("sales_orders.id"), index=True)
+    number: Mapped[str] = mapped_column(String(40), index=True)
+    delivery_date: Mapped[date] = mapped_column(Date, default=date.today)
+    warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    lines: Mapped[list[SalesDeliveryLine]] = relationship(back_populates="delivery", cascade="all, delete-orphan")
+
+
+class SalesDeliveryLine(Base):
+    __tablename__ = "sales_delivery_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    delivery_id: Mapped[int] = mapped_column(ForeignKey("sales_deliveries.id"), index=True)
+    sales_order_line_id: Mapped[int] = mapped_column(ForeignKey("sales_order_lines.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    delivery: Mapped[SalesDelivery] = relationship(back_populates="lines")
+
+
+class SupplierInvoiceMatch(Base):
+    __tablename__ = "supplier_invoice_matches"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"), index=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    quantity_variance: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"))
+    price_variance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    details: Mapped[str] = mapped_column(Text, default="")
+    matched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

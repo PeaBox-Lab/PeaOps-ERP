@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
@@ -11,7 +11,8 @@ from app.domain.models import (
     PurchaseRequest, PurchaseRequestLine, RequestForQuote, RequestForQuoteLine,
     SupplierQuote, SupplierQuoteLine, PurchaseOrder, PurchaseOrderLine,
     GoodsReceipt, GoodsReceiptLine, Warehouse, InventoryPolicy, InventoryBalance,
-    InventoryMovement, StockTransfer, StockTransferLine
+    InventoryMovement, StockTransfer, StockTransferLine, IntegrationEvent, DocumentLink,
+    PostingProfile, SalesDelivery, SalesDeliveryLine, SupplierInvoiceMatch
 )
 from .schemas import (
     CompanyCreate, AccountCreate, JournalCreate, PartyCreate, FiscalPeriodCreate,
@@ -19,7 +20,8 @@ from .schemas import (
     PriceListCreate, SalesQuoteCreate, SalesOrderCreate, QuoteConversion, OrderConfirmation,
     PurchaseRequestCreate, RFQCreate, SupplierQuoteCreate, PurchaseOrderCreate,
     SupplierQuoteConversion, GoodsReceiptCreate, InventoryPolicyCreate,
-    InventoryMovementCreate, StockTransferCreate, InventoryReservation
+    InventoryMovementCreate, StockTransferCreate, InventoryReservation, PostingProfileCreate,
+    SalesDeliveryCreate, IntegratedSalesInvoiceCreate, SupplierInvoiceIntegratedCreate
 )
 router = APIRouter(prefix="/api/v1")
 def audit(db: Session, action: str, entity_type: str, entity_id: int | str, details: str = ""):
@@ -34,7 +36,7 @@ def invoice_view(obj: Invoice):
     }
 @router.get("/health")
 def health():
-    return {"status": "ok", "product": "PeaOps", "version": "0.5.0"}
+    return {"status": "ok", "product": "PeaOps", "version": "0.6.0"}
 @router.post("/companies")
 def create_company(data: CompanyCreate, db: Session = Depends(get_db)):
     obj = Company(**data.model_dump())
@@ -689,3 +691,139 @@ def reorder_alerts(company_id: int, db: Session = Depends(get_db)):
         if needs: alerts.append({"item_id":policy.item_id,"warehouse_id":policy.warehouse_id,"available":str(available),
                                  "reorder_point":str(policy.reorder_point),"suggested_quantity":str(suggested)})
     return alerts
+
+
+
+def integration_event(db: Session, company_id: int, key: str, process: str, source_type: str, source_id: int):
+    from app.domain.integration_rules import require_idempotency_key
+    key=require_idempotency_key(key)
+    existing=db.scalar(select(IntegrationEvent).where(IntegrationEvent.company_id==company_id,IntegrationEvent.idempotency_key==key))
+    if existing:
+        if existing.status=="completed": return existing, True
+        raise HTTPException(409,"Integration operation is already processing or failed")
+    event=IntegrationEvent(company_id=company_id,idempotency_key=key,process_type=process,source_type=source_type,source_id=str(source_id))
+    db.add(event);db.flush();return event,False
+
+
+def link_documents(db: Session, company_id: int, source_type: str, source_id: int, target_type: str, target_id: int, relationship: str):
+    db.add(DocumentLink(company_id=company_id,source_type=source_type,source_id=str(source_id),target_type=target_type,target_id=str(target_id),relationship=relationship))
+
+
+def complete_event(event: IntegrationEvent, result_type: str, result_id: int, details: str=""):
+    event.status="completed";event.result_type=result_type;event.result_id=str(result_id);event.details=details;event.completed_at=datetime.utcnow()
+
+
+@router.post("/integration/posting-profiles")
+def create_posting_profile(data: PostingProfileCreate, db: Session = Depends(get_db)):
+    account_ids=[x for x in [data.receivable_account_id,data.payable_account_id,data.revenue_account_id,data.inventory_account_id,data.cogs_account_id,data.expense_account_id] if x]
+    accounts=db.scalars(select(Account).where(Account.company_id==data.company_id,Account.id.in_(account_ids))).all() if account_ids else []
+    if len(accounts)!=len(set(account_ids)): raise HTTPException(404,"One or more posting accounts were not found for company")
+    obj=PostingProfile(**data.model_dump());db.add(obj);db.commit();db.refresh(obj)
+    return {"id":obj.id,"profile_type":obj.profile_type}
+
+
+@router.post("/sales-orders/{order_id}/deliver")
+def deliver_sales_order(order_id: int, data: SalesDeliveryCreate, db: Session = Depends(get_db)):
+    from app.domain.integration_rules import validate_delivery_quantities
+    from app.domain.inventory_rules import apply_movement,issue_value
+    order=db.scalar(select(SalesOrder).options(selectinload(SalesOrder.lines)).where(SalesOrder.id==order_id))
+    if not order: raise HTTPException(404,"Sales order not found")
+    if order.status not in {"confirmed","partially_delivered"}: raise HTTPException(409,"Sales order is not open for delivery")
+    warehouse=db.get(Warehouse,data.warehouse_id)
+    if not warehouse or warehouse.company_id!=order.company_id: raise HTTPException(404,"Warehouse not found for company")
+    event,replayed=integration_event(db,order.company_id,data.idempotency_key,"sales_delivery","sales_order",order.id)
+    if replayed: return {"replayed":True,"event_id":event.id,"result_type":event.result_type,"result_id":event.result_id}
+    order_lines={x.id:x for x in order.lines};prepared=[];delivery_lines=[]
+    try:
+        for incoming in data.lines:
+            line=order_lines.get(incoming.sales_order_line_id)
+            if not line: raise HTTPException(404,"Sales order line not found")
+            delivered=db.scalar(select(func.coalesce(func.sum(SalesDeliveryLine.quantity),0)).join(SalesDelivery,SalesDelivery.id==SalesDeliveryLine.delivery_id).where(SalesDelivery.sales_order_id==order.id,SalesDelivery.status=="posted",SalesDeliveryLine.sales_order_line_id==line.id)) or Decimal("0")
+            updated,remaining,_=validate_delivery_quantities(line.quantity,delivered,incoming.quantity)
+            balance=get_inventory_balance(db,order.company_id,line.item_id,data.warehouse_id)
+            policy=get_inventory_policy(db,order.company_id,line.item_id,data.warehouse_id)
+            new_on_hand=apply_movement(balance.on_hand_quantity,"issue",incoming.quantity,policy.allow_negative if policy else False)
+            value=issue_value(incoming.quantity,balance.average_cost)
+            prepared.append((line,balance,new_on_hand,value,incoming.quantity));delivery_lines.append(SalesDeliveryLine(sales_order_line_id=line.id,item_id=line.item_id,quantity=incoming.quantity,unit_cost=balance.average_cost))
+        number=data.number or next_number(db,order.company_id,"sales_delivery")
+        delivery=SalesDelivery(company_id=order.company_id,sales_order_id=order.id,number=number,delivery_date=data.delivery_date,warehouse_id=data.warehouse_id,status="posted",notes=data.notes,lines=delivery_lines)
+        db.add(delivery);db.flush()
+        total_cost=Decimal("0")
+        for line,balance,new_on_hand,value,quantity in prepared:
+            balance.on_hand_quantity=new_on_hand;balance.inventory_value=max(Decimal(balance.inventory_value)-value,Decimal("0"));total_cost+=value
+            db.add(InventoryMovement(company_id=order.company_id,item_id=line.item_id,warehouse_id=data.warehouse_id,movement_type="issue",movement_date=data.delivery_date,quantity=quantity,signed_quantity=-Decimal(quantity),unit_cost=balance.average_cost,movement_value=value,reference_type="sales_delivery",reference_id=str(delivery.id),notes=data.notes))
+        all_delivered=True
+        for line in order.lines:
+            total=db.scalar(select(func.coalesce(func.sum(SalesDeliveryLine.quantity),0)).join(SalesDelivery,SalesDelivery.id==SalesDeliveryLine.delivery_id).where(SalesDelivery.sales_order_id==order.id,SalesDelivery.status=="posted",SalesDeliveryLine.sales_order_line_id==line.id)) or Decimal("0")
+            if Decimal(total)<Decimal(line.quantity): all_delivered=False
+        order.status="delivered" if all_delivered else "partially_delivered"
+        link_documents(db,order.company_id,"sales_order",order.id,"sales_delivery",delivery.id,"fulfilled_by")
+        complete_event(event,"sales_delivery",delivery.id,f"cost={total_cost}");audit(db,"deliver","sales_order",order.id,f"delivery={delivery.number}");db.commit()
+    except ValueError as exc:
+        db.rollback();raise HTTPException(409,str(exc))
+    return {"id":delivery.id,"number":delivery.number,"order_status":order.status,"inventory_cost":str(total_cost),"replayed":False}
+
+
+@router.post("/sales-orders/{order_id}/integrated-invoice")
+def integrated_sales_invoice(order_id: int, data: IntegratedSalesInvoiceCreate, db: Session = Depends(get_db)):
+    from app.domain.integration_rules import sales_journal
+    order=db.scalar(select(SalesOrder).options(selectinload(SalesOrder.lines)).where(SalesOrder.id==order_id))
+    if not order: raise HTTPException(404,"Sales order not found")
+    if order.status not in {"delivered","partially_delivered"}: raise HTTPException(409,"Sales order must have posted delivery before invoicing")
+    event,replayed=integration_event(db,order.company_id,data.idempotency_key,"sales_invoice","sales_order",order.id)
+    if replayed:return {"replayed":True,"event_id":event.id,"result_type":event.result_type,"result_id":event.result_id}
+    number=next_number(db,order.company_id,"ar_invoice")
+    invoice=Invoice(company_id=order.company_id,party_id=order.customer_id,invoice_type="ar",number=number,invoice_date=data.invoice_date,due_date=data.due_date,currency=order.currency,description=f"Sales order {order.number}")
+    invoice.lines=[InvoiceLine(description=x.description,quantity=x.quantity,unit_price=(Decimal(x.unit_price)*(Decimal("100")-Decimal(x.discount_percent))/Decimal("100")),tax_rate=x.tax_rate) for x in order.lines]
+    invoice.recalculate();db.add(invoice);db.flush()
+    cost=db.scalar(select(func.coalesce(func.sum(InventoryMovement.movement_value),0)).where(InventoryMovement.company_id==order.company_id,InventoryMovement.reference_type=="sales_delivery",InventoryMovement.reference_id.in_(select(func.cast(SalesDelivery.id,String)).where(SalesDelivery.sales_order_id==order.id)))) or Decimal("0")
+    profile=db.scalar(select(PostingProfile).where(PostingProfile.company_id==order.company_id,PostingProfile.profile_type=="sales"))
+    journal_id=None
+    if profile and all([profile.receivable_account_id,profile.revenue_account_id,profile.inventory_account_id,profile.cogs_account_id]):
+        specs=sales_journal(invoice.total_amount,cost);mapping={"accounts_receivable":profile.receivable_account_id,"revenue":profile.revenue_account_id,"inventory":profile.inventory_account_id,"cost_of_goods_sold":profile.cogs_account_id}
+        journal=JournalEntry(company_id=order.company_id,reference=f"AR-{invoice.number}",description=f"Integrated sales posting {order.number}",lines=[JournalLine(account_id=mapping[name],memo=invoice.number,debit=debit,credit=credit) for name,debit,credit in specs]);journal.post();db.add(journal);db.flush();journal_id=journal.id;link_documents(db,order.company_id,"invoice",invoice.id,"journal_entry",journal.id,"posted_by")
+    order.status="invoiced";link_documents(db,order.company_id,"sales_order",order.id,"invoice",invoice.id,"billed_by");complete_event(event,"invoice",invoice.id,f"journal_id={journal_id or ''}");db.commit()
+    return invoice_view(invoice)|{"journal_id":journal_id,"replayed":False}
+
+
+@router.post("/purchase-orders/{order_id}/integrated-supplier-invoice")
+def integrated_supplier_invoice(order_id: int,data: SupplierInvoiceIntegratedCreate,db: Session=Depends(get_db)):
+    from app.domain.integration_rules import three_way_match,purchase_journal
+    order=db.scalar(select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.id==order_id))
+    if not order:raise HTTPException(404,"Purchase order not found")
+    if order.status not in {"partially_received","received"}:raise HTTPException(409,"Purchase order requires a posted receipt before supplier invoicing")
+    event,replayed=integration_event(db,order.company_id,data.idempotency_key,"supplier_invoice","purchase_order",order.id)
+    if replayed:return {"replayed":True,"event_id":event.id,"result_type":event.result_type,"result_id":event.result_id}
+    lines_by_id={x.id:x for x in order.lines};invoice_lines=[];matches=[];matched=True;qty_var=Decimal("0");price_var=Decimal("0")
+    for incoming in data.lines:
+        line=lines_by_id.get(incoming.purchase_order_line_id)
+        if not line:raise HTTPException(404,"Purchase order line not found")
+        outcome=three_way_match(line.quantity,line.received_quantity,incoming.invoiced_quantity,line.unit_price,incoming.unit_price,data.quantity_tolerance,data.price_tolerance_percent)
+        matches.append((line,outcome));matched=matched and outcome['matched'];qty_var+=outcome['quantity_variance'];price_var+=outcome['price_variance']
+        invoice_lines.append(InvoiceLine(description=line.description,quantity=incoming.invoiced_quantity,unit_price=incoming.unit_price,tax_rate=incoming.tax_rate))
+    number=data.number or next_number(db,order.company_id,"ap_invoice")
+    invoice=Invoice(company_id=order.company_id,party_id=order.supplier_id,invoice_type="ap",number=number,invoice_date=data.invoice_date,due_date=data.due_date,currency=order.currency,description=f"Purchase order {order.number}",lines=invoice_lines)
+    invoice.recalculate();db.add(invoice);db.flush()
+    match=SupplierInvoiceMatch(company_id=order.company_id,purchase_order_id=order.id,invoice_id=invoice.id,status="matched" if matched else "exception",quantity_variance=qty_var,price_variance=price_var,details="three-way match",matched_at=datetime.utcnow() if matched else None);db.add(match);db.flush()
+    journal_id=None
+    if matched:
+        profile=db.scalar(select(PostingProfile).where(PostingProfile.company_id==order.company_id,PostingProfile.profile_type=="procurement"))
+        debit_account=profile.inventory_account_id or profile.expense_account_id if profile else None
+        if profile and debit_account and profile.payable_account_id:
+            specs=purchase_journal(invoice.total_amount);mapping={"inventory_or_expense":debit_account,"accounts_payable":profile.payable_account_id}
+            journal=JournalEntry(company_id=order.company_id,reference=f"AP-{invoice.number}",description=f"Integrated procurement posting {order.number}",lines=[JournalLine(account_id=mapping[name],memo=invoice.number,debit=debit,credit=credit) for name,debit,credit in specs]);journal.post();db.add(journal);db.flush();journal_id=journal.id;link_documents(db,order.company_id,"invoice",invoice.id,"journal_entry",journal.id,"posted_by")
+    link_documents(db,order.company_id,"purchase_order",order.id,"invoice",invoice.id,"matched_to");complete_event(event,"invoice",invoice.id,f"match_status={match.status};journal_id={journal_id or ''}");db.commit()
+    return invoice_view(invoice)|{"match_status":match.status,"quantity_variance":str(qty_var),"price_variance":str(price_var),"journal_id":journal_id,"replayed":False}
+
+
+@router.get("/integration/trace")
+def integration_trace(company_id:int,source_type:str,source_id:str,db:Session=Depends(get_db)):
+    links=db.scalars(select(DocumentLink).where(DocumentLink.company_id==company_id,DocumentLink.source_type==source_type,DocumentLink.source_id==source_id)).all()
+    return [{"source_type":x.source_type,"source_id":x.source_id,"target_type":x.target_type,"target_id":x.target_id,"relationship":x.relationship} for x in links]
+
+
+@router.get("/integration/events")
+def list_integration_events(company_id:int,status:str|None=None,db:Session=Depends(get_db)):
+    q=select(IntegrationEvent).where(IntegrationEvent.company_id==company_id)
+    if status:q=q.where(IntegrationEvent.status==status)
+    return [{"id":x.id,"process_type":x.process_type,"source_type":x.source_type,"source_id":x.source_id,"status":x.status,"result_type":x.result_type,"result_id":x.result_id,"details":x.details,"created_at":x.created_at,"completed_at":x.completed_at} for x in db.scalars(q.order_by(IntegrationEvent.created_at.desc())).all()]

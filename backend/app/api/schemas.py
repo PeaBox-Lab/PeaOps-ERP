@@ -36,7 +36,7 @@ class FiscalPeriodCreate(BaseModel):
     end_date: date
 class NumberSequenceCreate(BaseModel):
     company_id: int
-    document_type: Literal["ar_invoice", "ap_invoice", "receipt", "payment", "sales_quote", "sales_order", "purchase_request", "rfq", "purchase_order", "goods_receipt", "stock_transfer"]
+    document_type: Literal["ar_invoice", "ap_invoice", "receipt", "payment", "sales_quote", "sales_order", "purchase_request", "rfq", "purchase_order", "goods_receipt", "stock_transfer", "sales_delivery"]
     prefix: str = ""
     next_number: int = Field(default=1, ge=1)
     padding: int = Field(default=5, ge=1, le=12)
@@ -253,3 +253,51 @@ class InventoryReservation(BaseModel):
     item_id: int
     warehouse_id: int
     quantity: Decimal = Field(gt=0)
+
+
+class PostingProfileCreate(BaseModel):
+    company_id: int
+    profile_type: Literal["sales", "procurement"]
+    receivable_account_id: int | None = None
+    payable_account_id: int | None = None
+    revenue_account_id: int | None = None
+    inventory_account_id: int | None = None
+    cogs_account_id: int | None = None
+    expense_account_id: int | None = None
+
+
+class SalesDeliveryLineIn(BaseModel):
+    sales_order_line_id: int
+    quantity: Decimal = Field(gt=0)
+
+
+class SalesDeliveryCreate(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=120)
+    number: str | None = None
+    delivery_date: date
+    warehouse_id: int
+    notes: str = ""
+    lines: list[SalesDeliveryLineIn] = Field(min_length=1)
+
+
+class IntegratedSalesInvoiceCreate(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=120)
+    invoice_date: date
+    due_date: date
+
+
+class SupplierInvoiceLineMatch(BaseModel):
+    purchase_order_line_id: int
+    invoiced_quantity: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(ge=0)
+    tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+
+
+class SupplierInvoiceIntegratedCreate(BaseModel):
+    idempotency_key: str = Field(min_length=8, max_length=120)
+    number: str | None = None
+    invoice_date: date
+    due_date: date
+    quantity_tolerance: Decimal = Field(default=Decimal("0"), ge=0)
+    price_tolerance_percent: Decimal = Field(default=Decimal("0"), ge=0)
+    lines: list[SupplierInvoiceLineMatch] = Field(min_length=1)
