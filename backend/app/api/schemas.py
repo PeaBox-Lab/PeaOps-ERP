@@ -2,35 +2,25 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 from pydantic import BaseModel, Field, model_validator
-
-
 class CompanyCreate(BaseModel):
     code: str = Field(min_length=2, max_length=20)
     name: str = Field(min_length=2, max_length=160)
     base_currency: str = Field(default="INR", min_length=3, max_length=3)
-
-
 class AccountCreate(BaseModel):
     company_id: int
     code: str
     name: str
     account_type: str
-
-
 class JournalLineIn(BaseModel):
     account_id: int
     memo: str = ""
     debit: Decimal = Decimal("0")
     credit: Decimal = Decimal("0")
-
-
 class JournalCreate(BaseModel):
     company_id: int
     reference: str
     description: str = ""
     lines: list[JournalLineIn] = Field(min_length=2)
-
-
 class PartyCreate(BaseModel):
     company_id: int
     party_type: Literal["customer", "supplier"]
@@ -38,39 +28,29 @@ class PartyCreate(BaseModel):
     name: str = Field(min_length=2, max_length=180)
     gstin: str | None = Field(default=None, min_length=15, max_length=15)
     credit_limit: Decimal = Field(default=Decimal("0"), ge=0)
-
-
 class FiscalPeriodCreate(BaseModel):
     company_id: int
     code: str
     name: str
     start_date: date
     end_date: date
-
-
 class NumberSequenceCreate(BaseModel):
     company_id: int
-    document_type: Literal["ar_invoice", "ap_invoice", "receipt", "payment", "sales_quote", "sales_order"]
+    document_type: Literal["ar_invoice", "ap_invoice", "receipt", "payment", "sales_quote", "sales_order", "purchase_request", "rfq", "purchase_order", "goods_receipt"]
     prefix: str = ""
     next_number: int = Field(default=1, ge=1)
     padding: int = Field(default=5, ge=1, le=12)
-
-
 class BankAccountCreate(BaseModel):
     company_id: int
     code: str
     name: str
     currency: str = Field(default="INR", min_length=3, max_length=3)
     gl_account_id: int | None = None
-
-
 class InvoiceLineIn(BaseModel):
     description: str = Field(min_length=1, max_length=240)
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
     tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
-
-
 class InvoiceCreate(BaseModel):
     company_id: int
     party_id: int
@@ -81,14 +61,11 @@ class InvoiceCreate(BaseModel):
     currency: str = Field(default="INR", min_length=3, max_length=3)
     description: str = ""
     lines: list[InvoiceLineIn] = Field(min_length=1)
-
     @model_validator(mode="after")
     def dates_are_valid(self):
         if self.due_date < self.invoice_date:
             raise ValueError("Invoice due date cannot precede invoice date")
         return self
-
-
 class PaymentCreate(BaseModel):
     company_id: int
     party_id: int
@@ -97,18 +74,12 @@ class PaymentCreate(BaseModel):
     reference: str
     payment_date: date
     amount: Decimal = Field(gt=0)
-
-
 class AllocationCreate(BaseModel):
     invoice_id: int
     amount: Decimal = Field(gt=0)
-
-
 class PriceListLineIn(BaseModel):
     item_id: int
     unit_price: Decimal = Field(ge=0)
-
-
 class PriceListCreate(BaseModel):
     company_id: int
     code: str
@@ -117,8 +88,6 @@ class PriceListCreate(BaseModel):
     valid_from: date
     valid_until: date
     lines: list[PriceListLineIn] = Field(min_length=1)
-
-
 class SalesLineIn(BaseModel):
     item_id: int
     description: str = Field(min_length=1, max_length=240)
@@ -126,8 +95,6 @@ class SalesLineIn(BaseModel):
     unit_price: Decimal = Field(ge=0)
     discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
     tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
-
-
 class SalesQuoteCreate(BaseModel):
     company_id: int
     customer_id: int
@@ -137,8 +104,6 @@ class SalesQuoteCreate(BaseModel):
     currency: str = Field(default="INR", min_length=3, max_length=3)
     notes: str = ""
     lines: list[SalesLineIn] = Field(min_length=1)
-
-
 class SalesOrderCreate(BaseModel):
     company_id: int
     customer_id: int
@@ -147,14 +112,95 @@ class SalesOrderCreate(BaseModel):
     promised_date: date | None = None
     currency: str = Field(default="INR", min_length=3, max_length=3)
     lines: list[SalesLineIn] = Field(min_length=1)
-
-
 class QuoteConversion(BaseModel):
+    order_number: str | None = None
+    order_date: date
+    promised_date: date | None = None
+class OrderConfirmation(BaseModel):
+    override_credit: bool = False
+    override_reason: str = Field(default="", max_length=240)
+
+
+class PurchaseRequestLineIn(BaseModel):
+    item_id: int
+    description: str = Field(min_length=1, max_length=240)
+    quantity: Decimal = Field(gt=0)
+    estimated_unit_cost: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class PurchaseRequestCreate(BaseModel):
+    company_id: int
+    number: str | None = None
+    request_date: date
+    required_date: date
+    requester: str = Field(default="system", min_length=1, max_length=120)
+    department: str = Field(default="", max_length=80)
+    justification: str = ""
+    lines: list[PurchaseRequestLineIn] = Field(min_length=1)
+
+
+class RFQLineIn(BaseModel):
+    item_id: int
+    description: str = Field(min_length=1, max_length=240)
+    quantity: Decimal = Field(gt=0)
+
+
+class RFQCreate(BaseModel):
+    company_id: int
+    purchase_request_id: int | None = None
+    number: str | None = None
+    rfq_date: date
+    response_due: date
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    notes: str = ""
+    lines: list[RFQLineIn] = Field(min_length=1)
+
+
+class SupplierQuoteLineIn(BaseModel):
+    item_id: int
+    description: str = Field(min_length=1, max_length=240)
+    quantity: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(ge=0)
+    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+
+
+class SupplierQuoteCreate(BaseModel):
+    company_id: int
+    rfq_id: int
+    supplier_id: int
+    number: str
+    quote_date: date
+    valid_until: date
+    promised_date: date | None = None
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    lines: list[SupplierQuoteLineIn] = Field(min_length=1)
+
+
+class PurchaseOrderCreate(BaseModel):
+    company_id: int
+    supplier_id: int
+    number: str | None = None
+    order_date: date
+    promised_date: date | None = None
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    lines: list[SupplierQuoteLineIn] = Field(min_length=1)
+
+
+class SupplierQuoteConversion(BaseModel):
     order_number: str | None = None
     order_date: date
     promised_date: date | None = None
 
 
-class OrderConfirmation(BaseModel):
-    override_credit: bool = False
-    override_reason: str = Field(default="", max_length=240)
+class GoodsReceiptLineIn(BaseModel):
+    purchase_order_line_id: int
+    quantity: Decimal = Field(gt=0)
+
+
+class GoodsReceiptCreate(BaseModel):
+    number: str | None = None
+    receipt_date: date
+    warehouse_id: int | None = None
+    notes: str = ""
+    lines: list[GoodsReceiptLineIn] = Field(min_length=1)

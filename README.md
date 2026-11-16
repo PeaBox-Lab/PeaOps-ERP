@@ -1,19 +1,20 @@
-# PeaOps v0.3.0
+# PeaOps v0.4.0
 
-PeaOps is an India-first, globally-ready ERP foundation for SME and mid-market organizations. v0.3 extends the verified Finance core with a controlled Sales / Quote-to-Cash foundation while retaining one modular product across Local, Local Server and Cloud deployment paths.
+PeaOps is an India-first, globally-ready ERP foundation for SME and mid-market organizations. v0.4 extends the Finance and Sales core with a Procurement / Source-to-Receive foundation while retaining one modular product across Local, Local Server and Cloud deployment paths.
 
-## v0.3 Sales scope
+## v0.4 Procurement scope
 
-- Customer and item masters reused from the shared ERP core.
-- Dated, currency-specific price lists with item prices.
-- Sales quotations with validity dates, discounts, taxes and controlled send status.
-- Quote-to-sales-order conversion that preserves commercial lines.
-- Direct sales-order creation and promised-delivery dates.
-- Order confirmation with customer credit-exposure checks.
-- Explicit, audited credit overrides requiring a reason.
-- Confirmed-order handoff to draft Accounts Receivable invoices.
-- Sales command-centre UI for pipeline, orders, promises and credit holds.
-- Existing Finance v0.2 capabilities retained: AR, AP, payments, allocations, ageing, fiscal periods, numbering, banking foundation, GL journals and trial balance.
+- Purchase requests with requester, department, justification and required date.
+- Request submission and controlled lifecycle status.
+- Requests for quotation with response deadlines and optional request linkage.
+- Supplier quotation capture with line pricing, discounts, taxes, validity and promised dates.
+- Supplier comparison ranked by total cost, then promised date.
+- Supplier-quote conversion to purchase orders.
+- Direct purchase-order creation and controlled confirmation.
+- Partial and final goods receipts with over-receipt prevention.
+- Optional warehouse reference on receipts.
+- Procurement command-centre UI for sourcing, savings, commitments and receipt attention.
+- Finance v0.2 and Sales v0.3 capabilities retained.
 
 ## Quick start
 
@@ -26,6 +27,6 @@ PeaOps is an India-first, globally-ready ERP foundation for SME and mid-market o
 
 ## Important limitations
 
-v0.3.0 is an engineering release. Delivery and inventory fulfilment are not yet implemented; order invoice handoff creates a draft AR invoice rather than posting inventory or GL entries. Authentication, RBAC, segregation of duties, migrations, approvals, production backup/restore and a desktop installer remain future milestones.
+v0.4.0 is an engineering release. Goods receipts track purchase-order quantities but do not yet update an inventory stock ledger or valuation. Supplier invoices are not automatically matched to purchase orders and receipts, and no AP or GL posting is generated from procurement documents. Authentication, RBAC, approvals, migrations, backup/restore and installer packaging remain future milestones.
 
-See `docs/SALES.md`, `docs/FINANCE.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/USER_GUIDE.md`, `docs/SECURITY.md` and `CHANGELOG.md`.
+See `docs/PROCUREMENT.md`, `docs/SALES.md`, `docs/FINANCE.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/USER_GUIDE.md`, `docs/SECURITY.md` and `CHANGELOG.md`.

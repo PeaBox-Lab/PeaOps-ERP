@@ -1,24 +1,24 @@
-# User Guide - v0.3
+# User Guide - v0.4
 
-## Sales setup
+## Procurement setup
 
-1. Create the company, customer and item masters.
-2. Configure `sales_quote`, `sales_order` and `ar_invoice` number sequences.
-3. Create dated price lists for the selling currency.
-4. Set customer credit limits where control is required; zero currently means unlimited.
+1. Create company, supplier, item and optional warehouse masters.
+2. Configure `purchase_request`, `rfq`, `purchase_order` and `goods_receipt` number sequences.
+3. Confirm required Finance and Sales setup remains available where needed.
 
-## Quote-to-order
+## Request-to-receipt
 
-1. Create a quotation with item, quantity, unit price, discount and tax.
-2. Send the quotation after commercial review.
-3. Convert a sent quotation to a sales order, or create an order directly.
-4. Set an optional promised-delivery date.
-5. Confirm the order. PeaOps checks open receivables, other confirmed orders and the new order against the customer limit.
-6. If authorized outside the current system, record a credit override with a reason.
-7. Hand a confirmed order to Finance to create a draft AR invoice.
+1. Create a purchase request with required date and demand lines.
+2. Submit the request for sourcing.
+3. Create and issue an RFQ, optionally linked to the request.
+4. Record quotations from supplier masters.
+5. Review the RFQ comparison; the recommendation uses lowest total then earliest promise.
+6. Convert the chosen supplier quote into a purchase order, or create an order directly.
+7. Confirm the purchase order.
+8. Record partial or complete goods receipts against individual order lines.
+9. Continue receiving until every line is complete and the order status becomes `received`.
 
-## Finance lifecycle retained
+## Existing modules retained
 
-- Invoice: Draft → Open → Partially Paid → Paid.
-- Payment: Posted → controlled allocations.
-- Journal: Draft → balanced validation → Posted.
+- Sales: price lists, quotations, sales orders, credit checks and AR invoice handoff.
+- Finance: AR/AP invoices, payments, allocations, ageing, periods, banking foundation, journals and trial balance.

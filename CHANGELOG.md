@@ -1,27 +1,32 @@
 # Changelog
 
+## 0.4.0 - 2026-11-16
+
+### Added
+- Purchase requests with submission lifecycle.
+- RFQs with response deadlines and request linkage.
+- Supplier quotations with commercial line calculations.
+- Supplier comparison and transparent recommendation logic.
+- Supplier-quote conversion to purchase orders.
+- Purchase-order confirmation and promise tracking.
+- Partial and final goods receipts with over-receipt protection.
+- Procurement command-centre interface.
+- Procurement rule tests for pricing, dates, quote comparison and receipts.
+
+### Changed
+- Product/API/frontend version advanced to 0.4.0.
+- Numbering sequence types expanded for procurement documents.
+- Architecture and user documentation expanded for Source-to-Receive.
+
 ## 0.3.0 - 2026-11-16
 
 ### Added
-- Price lists with validity windows and item pricing.
-- Sales quotations with discount, tax, validity and send lifecycle.
-- Quote-to-order conversion.
-- Sales orders with delivery promises and status controls.
-- Customer credit-exposure checks and audited override reasons.
-- Confirmed-order handoff to draft AR invoices.
-- Sales command-centre interface.
-- Sales rule tests for pricing, validity, promises and credit limits.
-
-### Changed
-- Product/API/frontend version advanced to 0.3.0.
-- Numbering sequence types expanded for quotations and sales orders.
-- Architecture and user documentation expanded for Quote-to-Cash.
+- Price lists, quotations, quote conversion, sales orders, credit controls, AR handoff and Sales command centre.
 
 ## 0.2.0 - 2026-11-16
 
 ### Added
-- AR/AP invoices, parties, fiscal periods, numbering, bank accounts, payments, allocations and ageing.
-- Finance command-centre frontend and finance rule tests.
+- AR/AP invoices, parties, periods, numbering, bank accounts, payments, allocations, ageing and Finance command centre.
 
 ## 0.1.0 - 2026-11-16
 
