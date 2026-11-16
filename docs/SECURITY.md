@@ -1,11 +1,7 @@
-# Security Baseline
-## Required before production use
-- Replace development secrets and use managed secret storage.
-- TLS outside localhost.
-- Authentication, password hashing and MFA for cloud.
-- Server-side RBAC and segregation-of-duties checks.
-- Tenant-isolation tests before SaaS exposure.
-- Rate limits, security headers, dependency scanning and secret scanning.
-- Database migrations, encrypted backups and tested restores.
-- Append-only audit retention aligned with customer policy.
-v0.2 is an engineering foundation, not a compliance-certified production release.
+# Security Baseline - v0.8
+
+Implemented foundations: individual users, password complexity and hashing, login lockout, signed expiring tokens, role/permission data model, protected user/role administration, company-scope checks, security events, security headers, TLS proxy configuration, production-secret checks, private disclosure policy, CodeQL and dependency workflows.
+
+Required before unrestricted production: MFA/SSO, token revocation and secret rotation, permission enforcement across every endpoint, segregation-of-duties rules, rate limiting, comprehensive tenant-isolation tests, penetration testing, centralized audit/log retention, encrypted/off-site backups, automated restore tests, SBOM and signed releases.
+
+Never store secrets, certificates, backups or customer data in the repository.

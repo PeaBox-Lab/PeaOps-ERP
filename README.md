@@ -1,38 +1,44 @@
-# PeaOps v0.7.0
+# PeaOps v0.8.0 — Production Foundation
 
-PeaOps v0.7 adds financial and operational Insight plus a complete role-based documentation and user-story package to the cumulative ERP foundation.
+PeaOps is an open-source ERP foundation for Finance, Sales, Procurement, Inventory, Integration and Insight. v0.8 moves the project onto an **on-prem Server-first production line** by adding security, migrations, operations, recovery, GitHub governance and release controls.
 
-## Product modules
+> **Release classification:** controlled-pilot candidate / production foundation. It is not unrestricted production GA. Review the readiness checklist and known blockers before deployment.
 
-- Foundation and administration
-- Finance and accounting
-- Sales / Quote-to-Cash
-- Procurement / Procure-to-Pay
-- Inventory and warehouse control
-- Cross-module integration and posting
-- Insight, statements, KPIs, saved reports, exports and data quality
+## Production foundation added
 
-## Complete documentation included
+- Individual users, strong password policy and PBKDF2-SHA256 hashing.
+- Expiring signed access tokens, failed-login tracking and temporary lockout.
+- Company-scoped roles, permissions and protected user/role administration.
+- Security-event records and request/security response headers.
+- Production runtime validation that rejects default secrets, SQLite and insecure browser origins.
+- Alembic migration structure and PostgreSQL migration startup gate.
+- Liveness/readiness endpoints and structured request logging foundation.
+- Docker Compose production stack: PostgreSQL, migration job, API, web application and TLS reverse proxy.
+- Checksummed database backup and restore scripts plus operational runbooks.
+- Apache License 2.0 and GitHub-ready contribution, governance, security, issue, PR, CI, CodeQL, Dependabot and release files.
+- Production operations, security, database-administration, deployment, incident, maintenance and publishing guides.
+- Security/operations/open-source user stories and traceability.
 
-- Master user guide and role navigation.
-- Guides for executives/customers, system admins, technical admins, implementers, Finance, Sales, Procurement, Inventory, managers/analysts, auditors, support, developers and general users.
-- Module documentation for every cumulative module.
-- User-story catalog with acceptance criteria.
-- Requirements/test/release/role traceability matrix.
-- Features, cumulative version history, architecture, security, roadmap and changelog.
-- Implementation playbook, data-migration guide, UAT/cutover guide.
-- Troubleshooting, FAQ, glossary and API workflow examples.
+## Existing cumulative modules
 
-## Quick start
+Foundation, Finance, Sales, Procurement, Inventory, Integration and Insight remain included with all earlier tests and documentation.
 
-1. Copy `.env.example` to `.env`.
-2. Install dependencies: `pip install -r backend/requirements.txt`.
-3. Run API: `cd backend && uvicorn app.main:app --reload`.
-4. Open `http://localhost:8000/docs`.
-5. Run UI: `cd frontend && npm install && npm run dev`.
-6. Run checks: `bash scripts/check.sh`.
-7. Start documentation at `docs/USER_GUIDE.md`.
+## Start here
 
-## Important limitations
+- General users: `docs/USER_GUIDE.md`
+- Server deployment: `docs/operations/SERVER_DEPLOYMENT_GUIDE.md`
+- Production gate: `docs/operations/PRODUCTION_READINESS_CHECKLIST.md`
+- Security: `SECURITY.md` and `docs/security/THREAT_MODEL.md`
+- Open-source publishing: `docs/open-source/GITHUB_PUBLISHING_GUIDE.md`
+- Contributors: `CONTRIBUTING.md`
+- Product stories: `docs/product/USER_STORIES.md`
 
-v0.7.0 is an engineering release, not production GA. Frontend metrics are illustrative design content until connected to live API state. Reporting lacks comparative periods, consolidation, budgets/forecasts and formal cash-flow classification. Authentication, mature RBAC/SoD, migrations, production concurrency, observability, backups, DR, full E2E coverage and installer packaging remain roadmap work.
+## Developer check
+
+```bash
+bash scripts/check.sh
+```
+
+## License
+
+Apache License 2.0. See `LICENSE` and `NOTICE`.

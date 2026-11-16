@@ -8,7 +8,9 @@ This is the navigation guide for everyone involved in selecting, implementing, a
 |---|---|---|
 | Business sponsor / customer executive | `guides/EXECUTIVE_AND_CUSTOMER_GUIDE.md` | Outcomes, governance, KPIs, rollout decisions |
 | System administrator | `guides/SYSTEM_ADMIN_GUIDE.md` | Companies, masters, periods, numbering, controls |
-| Technical administrator / DevOps | `guides/TECHNICAL_ADMIN_GUIDE.md` | Configuration, database, deployment, operations |
+| Technical administrator / DevOps | `guides/TECHNICAL_ADMIN_GUIDE.md` | Configuration, deployment and operations |
+| Security administrator | `guides/SECURITY_ADMIN_GUIDE.md` | Users, roles, security events and access review |
+| Database administrator | `guides/DATABASE_ADMIN_GUIDE.md` | PostgreSQL, migrations, backup and recovery |
 | Implementation consultant | `guides/IMPLEMENTATION_GUIDE.md` | Discovery, design, migration, testing, cutover |
 | Finance user / controller | `guides/FINANCE_USER_GUIDE.md` | GL, AR, AP, payments, ageing, statements |
 | Sales user / sales operations | `guides/SALES_USER_GUIDE.md` | Pricing, quotes, orders, delivery, invoicing |
@@ -39,3 +41,12 @@ Documents progress through explicit statuses. Do not edit posted financial or in
 - Product: `product/FEATURES.md`, `product/VERSION_HISTORY.md`, `product/USER_STORIES.md`, `product/TRACEABILITY_MATRIX.md`
 - Implementation: `implementation/IMPLEMENTATION_PLAYBOOK.md`, `implementation/DATA_MIGRATION_GUIDE.md`, `implementation/UAT_AND_CUTOVER.md`
 - Operations/help: `help/TROUBLESHOOTING.md`, `help/FAQ.md`, `help/GLOSSARY.md`, `help/API_WORKFLOW_EXAMPLES.md`
+
+## Production and open-source administration
+
+- Controlled pilot deployment: `operations/SERVER_DEPLOYMENT_GUIDE.md`
+- Production gate: `operations/PRODUCTION_READINESS_CHECKLIST.md`
+- Security administrator: `guides/SECURITY_ADMIN_GUIDE.md`
+- Database administrator: `guides/DATABASE_ADMIN_GUIDE.md`
+- GitHub maintainer: `open-source/GITHUB_PUBLISHING_GUIDE.md`
+- Backup/recovery and incidents: `operations/BACKUP_AND_RESTORE.md`, `operations/INCIDENT_RESPONSE.md`

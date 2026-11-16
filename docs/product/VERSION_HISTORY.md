@@ -20,3 +20,6 @@ Idempotency, traceability, sales delivery, integrated invoices, three-way matchi
 
 ## v0.7 Insight and Documentation
 Statements, KPIs, operational analytics, saved reports, exports, data quality, Insight command centre, complete role guides, user stories and implementation documentation.
+
+## v0.8 Production Foundation
+Authentication/RBAC foundations, Alembic migrations, PostgreSQL server operations, health/backup/restore, production runbooks, Apache-2.0 open-source governance and GitHub automation.

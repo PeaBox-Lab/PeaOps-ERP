@@ -1,0 +1,16 @@
+name: Feature request
+description: Propose an outcome-focused product enhancement
+title: "[Feature]: "
+labels: [enhancement, needs-triage]
+body:
+  - type: textarea
+    id: problem
+    attributes: {label: Problem and affected users}
+    validations: {required: true}
+  - type: textarea
+    id: outcome
+    attributes: {label: Desired outcome and acceptance criteria}
+    validations: {required: true}
+  - type: textarea
+    id: controls
+    attributes: {label: Accounting, security, migration, or compatibility considerations}

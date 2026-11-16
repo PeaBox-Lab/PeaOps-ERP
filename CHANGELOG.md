@@ -1,27 +1,32 @@
 # Changelog
 
+## 0.8.0 - 2026-11-16
+### Added
+- User, role, permission, user-role and security-event models.
+- Password policy, PBKDF2 hashing, signed expiring access tokens and lockout.
+- Protected administration APIs and production runtime validation.
+- Alembic migration baseline and production migration job.
+- Liveness/readiness endpoints and request/security headers.
+- On-prem production Docker stack with PostgreSQL, web, API and TLS proxy.
+- Backup, checksum, restore, preflight and bootstrap-admin tooling.
+- Apache-2.0 license, notice and complete GitHub community/governance files.
+- CI, migration smoke test, CodeQL, dependency review, Dependabot and release workflows.
+- Production, security, database, incident, maintenance, upgrade and publishing guides.
+- Security, operations and open-source user stories.
+### Changed
+- Product/API/frontend version advanced to 0.8.0.
+- Production schema ownership moves from automatic creation to Alembic.
+- Release classified as controlled-pilot candidate, not GA.
+
 ## 0.7.0 - 2026-11-16
 ### Added
-- Income-statement and balance-sheet APIs.
-- Cross-module KPIs and operational performance reports.
-- Saved reports, report runs and trial-balance CSV export.
-- Data-quality findings for configuration and integration gaps.
-- Insight command-centre interface.
-- Complete role-based user guide suite.
-- Implementation, migration, UAT/cutover and support documentation.
-- Cumulative user stories with acceptance criteria.
-- Requirements, test, role and release traceability matrix.
-- Reporting rule tests.
-### Changed
-- Product/API/frontend version advanced to 0.7.0.
-- README, architecture, roadmap, user guide, features and version history expanded.
-
+- Insight, statements, KPIs, reports, exports, data quality and complete documentation suite.
 ## 0.6.0 - 2026-11-16
 ### Added
 - Idempotent integration, trace, delivery, matching and GL posting.
 ## 0.5.0 - 2026-11-16
 ### Added
-- Stock ledger, balances, valuation, transfers and reorder.
+- Inventory ledger, balances, valuation, transfers and reorder.
 ## 0.4.0 - 2026-11-16
 ### Added
 - Procurement request-to-receipt.

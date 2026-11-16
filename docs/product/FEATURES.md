@@ -23,3 +23,6 @@ KPIs, financial statements, customer/supplier/warehouse performance, integration
 
 ## Documentation
 Role-based guides, implementation playbook, migration guide, UAT/cutover guide, user stories, traceability matrix, FAQ, troubleshooting, glossary and API workflow examples.
+
+## Production and open-source foundation (v0.8)
+Users, roles, permissions, authentication, lockout, security events, runtime safety checks, migrations, health probes, Docker production server, TLS proxy, backup/restore, GitHub CI/security/release automation, Apache-2.0 licensing and community governance.

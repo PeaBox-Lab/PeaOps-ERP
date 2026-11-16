@@ -1,20 +1,23 @@
-# Architecture
+# Architecture - v0.8
 
-PeaOps remains a modular monolith with Finance, Sales, Procurement, Inventory and Integration domain areas sharing organization, party, item, warehouse, audit and numbering foundations.
+PeaOps is a modular monolith with bounded Finance, Sales, Procurement, Inventory, Integration, Insight and Security/Operations areas.
 
-## Integration architecture
+## Production server topology
 
-- Explicit application commands coordinate cross-module changes.
-- `IntegrationEvent` supplies replay protection and operation status.
-- `DocumentLink` supplies durable source-to-result traceability.
-- `PostingProfile` maps business posting roles to company GL accounts.
-- Operational and financial mutations share one database transaction.
-- Pure integration rules validate delivery quantities, matching and balanced posting specifications.
+TLS reverse proxy → React static web and FastAPI API → PostgreSQL. A one-shot migration job upgrades schema before API startup. Services run on a private container network; only proxy ports are exposed.
 
-## Transaction boundaries
+## Security architecture
 
-Sales delivery updates inventory, writes movement history and delivery records atomically. Integrated invoicing creates subledger documents, optional GL journals and trace links atomically. Procurement matching creates the supplier invoice and match result together; an exception prevents automatic journal posting.
+Users belong to a company. Roles contain permission strings; users receive roles. Passwords use PBKDF2-SHA256 with per-password salt. Access tokens are HMAC signed, short lived and contain company/permission claims. Protected administration endpoints enforce permission and company scope. Security events capture authentication and administration outcomes.
 
-## Production hardening gap
+## Data and transaction architecture
 
-The current create-all schema approach must be replaced with migrations. Concurrent posting requires row locking or optimistic version checks. Idempotency uniqueness must be enforced and tested on PostgreSQL under parallel requests.
+SQLAlchemy models persist business records. Alembic owns production schema evolution. Pure rule modules hold deterministic invariants. Integrated posting operations use database transactions, idempotency events and document links.
+
+## Operational architecture
+
+Liveness verifies process availability; readiness verifies database access. Reverse proxy applies TLS/HSTS. Backups use PostgreSQL custom format and SHA-256. CI runs tests, frontend build and migration smoke test.
+
+## Pre-GA gaps
+
+Complete authorization coverage, MFA/SSO, token revocation/rotation, SoD policy engine, concurrency controls, load/E2E testing, centralized observability, automated recovery and signed/SBOM releases.

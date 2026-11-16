@@ -23,3 +23,6 @@
 ## Validation boundary
 
 Pure-rule tests demonstrate deterministic business invariants. They do not replace database integration, API contract, authorization, concurrency, performance, security or browser E2E testing required before GA.
+| Security | US-SEC-001–003 | authentication, users, roles, runtime validation | security/runtime tests | Security Admin, System Admin |
+| Operations | US-OPS-001–003 | Alembic, health probes, backup/restore | migration/config validation | Technical Admin, DBA |
+| Open source | US-OSS-001–002 | license, community files, CI/release workflows | repository completeness checks | Developer, Maintainer |

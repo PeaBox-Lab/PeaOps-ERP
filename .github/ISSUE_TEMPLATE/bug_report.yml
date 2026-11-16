@@ -1,0 +1,30 @@
+name: Bug report
+description: Report a reproducible PeaOps defect
+title: "[Bug]: "
+labels: [bug, needs-triage]
+body:
+  - type: input
+    id: version
+    attributes: {label: PeaOps version}
+    validations: {required: true}
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options: [Platform, Finance, Sales, Procurement, Inventory, Integration, Insight, Security, Deployment, Documentation]
+    validations: {required: true}
+  - type: textarea
+    id: reproduce
+    attributes: {label: Reproduction steps}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: Expected behavior}
+    validations: {required: true}
+  - type: textarea
+    id: actual
+    attributes: {label: Actual behavior}
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes: {label: Sanitized evidence, logs, or screenshots}

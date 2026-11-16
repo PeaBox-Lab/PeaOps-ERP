@@ -317,3 +317,27 @@ class ReportRunCreate(BaseModel):
     report_type: Literal["income_statement","balance_sheet","trial_balance","ar_ageing","ap_ageing","sales_performance","procurement_performance","inventory_summary","integration_health"]
     parameters: dict = {}
     generated_by: str = Field(default="system", min_length=1, max_length=120)
+
+
+class UserCreate(BaseModel):
+    company_id: int
+    username: str = Field(min_length=3, max_length=120)
+    display_name: str = Field(min_length=2, max_length=160)
+    password: str = Field(min_length=12, max_length=200)
+
+
+class LoginRequest(BaseModel):
+    company_id: int
+    username: str
+    password: str
+
+
+class RoleCreate(BaseModel):
+    company_id: int
+    code: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=2, max_length=120)
+    permissions: list[str] = Field(min_length=1)
+
+
+class UserRoleAssignment(BaseModel):
+    role_id: int

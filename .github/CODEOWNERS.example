@@ -1,0 +1,4 @@
+# Rename to CODEOWNERS after replacing these example handles.
+* @OWNER
+/backend/app/security/ @SECURITY_OWNER
+/backend/alembic/ @DATABASE_OWNER

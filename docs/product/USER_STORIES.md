@@ -215,3 +215,52 @@ As an administrator, I want actionable findings, so that reporting and posting g
 ### US-RPT-005 Report history
 As an auditor, I want report-run records, so that generation context is traceable.
 - Run stores type, parameters, user and timestamp.
+
+## Security and production operations
+
+### US-SEC-001 User authentication
+As a user, I want individual credentials and expiring access tokens, so that access is attributable and time bounded.
+- Password policy is validated before hashing.
+- Invalid login records a denied security event.
+- Five failed attempts temporarily lock the account.
+
+### US-SEC-002 Role administration
+As a security administrator, I want reusable roles and permissions, so that access follows job responsibilities.
+- Role and user belong to the same company.
+- Duplicate permission and assignment are rejected.
+- Administrative actions require administrative permissions.
+
+### US-SEC-003 Secure runtime
+As a technical administrator, I want unsafe production configuration rejected, so that known development defaults cannot start in production.
+- Production requires PostgreSQL.
+- Secret contains at least 32 non-default characters.
+- Browser origins are explicit HTTPS URLs.
+
+### US-OPS-001 Database migration
+As a database administrator, I want versioned schema migrations, so that upgrades are controlled and repeatable.
+- Migration runs before API startup.
+- CI performs a PostgreSQL migration smoke test.
+- Auto-create schema is disabled in production.
+
+### US-OPS-002 Service health
+As an operator, I want liveness and readiness probes, so that failed application or database state is detected.
+- Liveness does not depend on database.
+- Readiness verifies database access.
+
+### US-OPS-003 Backup and restore
+As an operator, I want checksummed PostgreSQL backups and a tested restore procedure, so that data can be recovered.
+- Backup uses custom format and writes SHA-256.
+- Restore validates checksum before changing database.
+- Restore drills reconcile critical business totals.
+
+### US-OSS-001 Community contribution
+As a contributor, I want licensing, contribution rules, issue templates and CI, so that I can participate safely.
+- Repository contains Apache-2.0 license and notice.
+- Pull requests require validation and documentation checks.
+- Security reports use private disclosure.
+
+### US-OSS-002 Reproducible release
+As a maintainer, I want tagged release packaging and checksums, so that users can verify a release.
+- Release workflow builds from a tag.
+- Generated package excludes secrets and caches.
+- Release notes identify limitations and migrations.

@@ -682,3 +682,56 @@ class DataQualityFinding(Base):
     description: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="open")
     detected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("company_id", "username", name="uq_user_company_username"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    username: Mapped[str] = mapped_column(String(120), index=True)
+    display_name: Mapped[str] = mapped_column(String(160))
+    password_hash: Mapped[str] = mapped_column(String(300))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    failed_login_count: Mapped[int] = mapped_column(default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Role(Base):
+    __tablename__ = "roles"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_role_company_code"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    code: Mapped[str] = mapped_column(String(80), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    system_role: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class RolePermission(Base):
+    __tablename__ = "role_permissions"
+    __table_args__ = (UniqueConstraint("role_id", "permission", name="uq_role_permission"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
+    permission: Mapped[str] = mapped_column(String(120), index=True)
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+    __table_args__ = (UniqueConstraint("user_id", "role_id", name="uq_user_role"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
+
+
+class SecurityEvent(Base):
+    __tablename__ = "security_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    username: Mapped[str] = mapped_column(String(120), default="")
+    outcome: Mapped[str] = mapped_column(String(20))
+    details: Mapped[str] = mapped_column(Text, default="")
+    event_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
