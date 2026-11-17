@@ -645,6 +645,20 @@ class SupplierInvoiceMatch(Base):
     matched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class LandedCost(Base):
+    __tablename__ = "landed_costs"
+    __table_args__ = (UniqueConstraint("company_id", "purchase_order_id", name="uq_landed_cost_company_po"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    purchase_order_id: Mapped[int] = mapped_column(ForeignKey("purchase_orders.id"), index=True)
+    description: Mapped[str] = mapped_column(String(240), default="")
+    freight: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    insurance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    duty: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    other_charges: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    allocated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class SavedReport(Base):
     __tablename__ = "saved_reports"
     __table_args__ = (UniqueConstraint("company_id", "name", name="uq_saved_report_company_name"),)
@@ -657,6 +671,7 @@ class SavedReport(Base):
     shared: Mapped[bool] = mapped_column(Boolean, default=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    schedule_cron: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
 class ReportRun(Base):
@@ -835,6 +850,20 @@ class Opportunity(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
     probability: Mapped[int] = mapped_column(default=10)
     expected_close: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+    __table_args__ = (UniqueConstraint("company_id", name="uq_tenant_company"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    plan: Mapped[str] = mapped_column(String(30), default="starter")
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    max_users: Mapped[int] = mapped_column(default=50)
+    billing_customer_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    region: Mapped[str] = mapped_column(String(40), default="in-central-1")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

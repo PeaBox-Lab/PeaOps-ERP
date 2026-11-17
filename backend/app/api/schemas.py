@@ -450,3 +450,25 @@ class TreasuryAccountCreate(BaseModel):
     account_type: str = "bank"
     bank_account_id: int | None = None
     active: bool = True
+
+
+class LandedCostCreate(BaseModel):
+    company_id: int
+    purchase_order_id: int
+    description: str = ""
+    freight: Decimal = Field(default=Decimal("0"), ge=0)
+    insurance: Decimal = Field(default=Decimal("0"), ge=0)
+    duty: Decimal = Field(default=Decimal("0"), ge=0)
+    other_charges: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class TenantCreate(BaseModel):
+    slug: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9-]+$")
+    name: str = Field(min_length=2, max_length=160)
+    plan: str = "starter"
+    max_users: int = Field(default=50, ge=1, le=100000)
+    region: str = "in-central-1"
+    base_currency: str = Field(default="INR", min_length=3, max_length=3)
+    admin_username: str = Field(min_length=3, max_length=120)
+    admin_display_name: str = Field(min_length=2, max_length=160)
+    admin_password: str = Field(min_length=12, max_length=200)

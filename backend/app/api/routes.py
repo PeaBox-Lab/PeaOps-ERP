@@ -26,7 +26,7 @@ from app.domain.models import (
     BillOfMaterial, BillOfMaterialLine, WorkOrder,
     Project, ProjectTask,
     MaintenanceAsset, MaintenanceWorkOrder,
-    LedgerConsolidation, TreasuryAccount
+    LedgerConsolidation, TreasuryAccount, LandedCost, Tenant
 )
 from .schemas import (
     CompanyCreate, AccountCreate, JournalCreate, PartyCreate, FiscalPeriodCreate,
@@ -41,7 +41,7 @@ from .schemas import (
     BillOfMaterialCreate, BillOfMaterialLineCreate, WorkOrderCreate,
     ProjectCreate, ProjectTaskCreate,
     MaintenanceAssetCreate, MaintenanceWorkOrderCreate,
-    LedgerConsolidationCreate, TreasuryAccountCreate
+    LedgerConsolidationCreate, TreasuryAccountCreate, LandedCostCreate, TenantCreate
 )
 router = APIRouter(prefix="/api/v1")
 def audit(db: Session, action: str, entity_type: str, entity_id: int | str, details: str = ""):
@@ -1313,3 +1313,80 @@ def create_treasury_account(data: TreasuryAccountCreate, db: Session = Depends(g
                         active=data.active)
     db.add(t); db.commit(); db.refresh(t)
     return t
+
+# --- Phase 4: exports, landed cost, report scheduling ---
+@router.get("/invoices/export.xlsx")
+def export_invoices_xlsx(company_id: int, db: Session = Depends(get_db)):
+    from openpyxl import Workbook
+    from io import BytesIO
+    wb = Workbook(); ws = wb.active; ws.title = "Invoices"
+    ws.append(["id", "number", "invoice_type", "party_id", "invoice_date", "due_date", "total_amount", "paid_amount", "status"])
+    for inv in db.scalars(select(Invoice).where(Invoice.company_id == company_id)).all():
+        ws.append([inv.id, inv.number, inv.invoice_type, inv.party_id,
+                   inv.invoice_date.isoformat(), inv.due_date.isoformat(),
+                   float(inv.total_amount or 0), float(inv.paid_amount or 0), inv.status])
+    buf = BytesIO(); wb.save(buf); buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                             headers={"Content-Disposition": "attachment; filename=invoices.xlsx"})
+
+@router.get("/invoices/{invoice_id}/e-invoice.xml")
+def export_invoice_einvoice(invoice_id: int, db: Session = Depends(get_db)):
+    inv = db.get(Invoice, invoice_id)
+    if not inv: raise HTTPException(404, "Invoice not found")
+    lines = "".join(
+        f"<InvoiceLine><ID>{i+1}</ID><InvoicedQuantity unitCode=\"EA\">{l.quantity}</InvoicedQuantity>"
+        f"<LineExtensionAmount currencyID=\"{inv.currency}\">{l.net_amount}</LineExtensionAmount>"
+        f"<TaxTotal><TaxAmount currencyID=\"{inv.currency}\">{l.tax_amount}</TaxAmount></TaxTotal></InvoiceLine>"
+        for i, l in enumerate(inv.lines))
+    xml = (f"<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+           f"<Invoice xmlns=\"urn:oasis:names:specification:ubl:schema:xsd:Invoice-2\" xmlns:cac=\"urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2\" xmlns:cbc=\"urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2\">"
+           f"<cbc:CustomizationID>urn:peaops:einvoice:1.0</cbc:CustomizationID>"
+           f"<cbc:ID>{inv.number}</cbc:ID><cbc:IssueDate>{inv.invoice_date}</cbc:IssueDate>"
+           f"<cbc:DueDate>{inv.due_date}</cbc:DueDate>"
+           f"<cac:AccountingSupplierParty><cac:Party><cbc:EndpointID>{inv.company_id}</EndpointID></cac:Party></cac:AccountingSupplierParty>"
+           f"<cac:AccountingCustomerParty><cac:Party><cbc:EndpointID>{inv.party_id}</EndpointID></cac:Party></cac:AccountingCustomerParty>"
+           f"<cac:TaxTotal><cbc:TaxAmount currencyID=\"{inv.currency}\">{inv.tax_amount}</cbc:TaxAmount></cac:TaxTotal>"
+           f"<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID=\"{inv.currency}\">{inv.subtotal}</cbc:LineExtensionAmount>"
+           f"<cbc:TaxExclusiveAmount currencyID=\"{inv.currency}\">{inv.subtotal}</cbc:TaxExclusiveAmount>"
+           f"<cbc:PayableAmount currencyID=\"{inv.currency}\">{inv.total_amount}</cbc:PayableAmount></cac:LegalMonetaryTotal>"
+           f"{lines}</Invoice>")
+    return StreamingResponse(iter([xml]), media_type="application/xml",
+                             headers={"Content-Disposition": f"attachment; filename=invoice-{inv.number}.xml"})
+
+@router.get("/landed-costs")
+def list_landed_costs(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(LandedCost).where(LandedCost.company_id == company_id).order_by(LandedCost.allocated_at.desc())).all()
+
+@router.post("/landed-costs")
+def create_landed_cost(data: LandedCostCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id: raise HTTPException(403, "Cross-company access denied")
+    po = db.get(PurchaseOrder, data.purchase_order_id)
+    if not po or po.company_id != data.company_id: raise HTTPException(404, "Purchase order not found")
+    lc = LandedCost(company_id=data.company_id, purchase_order_id=data.purchase_order_id, description=data.description,
+                    freight=data.freight, insurance=data.insurance, duty=data.duty, other_charges=data.other_charges)
+    db.add(lc); db.add(SecurityEvent(company_id=data.company_id, event_type="landed_cost_create", username=str(principal['sub']), outcome="success", details=po.number)); db.commit(); db.refresh(lc)
+    return lc
+
+@router.post("/saved-reports/{report_id}/schedule")
+def schedule_saved_report(report_id: int, schedule_cron: str = Query(min_length=5, max_length=80), db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    r = db.get(SavedReport, report_id)
+    if not r: raise HTTPException(404, "Report not found")
+    if int(principal['company_id']) != r.company_id: raise HTTPException(403, "Cross-company access denied")
+    r.schedule_cron = schedule_cron; db.commit(); db.refresh(r)
+    return {"id": r.id, "schedule_cron": r.schedule_cron}
+
+# --- Phase 5: tenant provisioning ---
+@router.post("/admin/tenants")
+def provision_tenant(data: TenantCreate, db: Session = Depends(get_db), principal=Depends(require_permission("admin:tenants"))):
+    from app.security.rules import hash_password
+    existing = db.scalar(select(Tenant).where(Tenant.slug == data.slug))
+    if existing: raise HTTPException(409, "Tenant slug already in use")
+    code = data.slug.upper()[:20]
+    company = Company(code=code, name=data.name, base_currency=data.base_currency)
+    db.add(company); db.flush()
+    tenant = Tenant(company_id=company.id, slug=data.slug, plan=data.plan, max_users=data.max_users, region=data.region)
+    admin = User(company_id=company.id, username=data.admin_username.lower(), display_name=data.admin_display_name, password_hash=hash_password(data.admin_password))
+    db.add_all([tenant, admin])
+    db.add(SecurityEvent(company_id=company.id, event_type="tenant_provision", username=data.admin_username, outcome="success", details=f"plan={data.plan} region={data.region}"))
+    db.commit(); db.refresh(tenant)
+    return {"id": tenant.id, "slug": tenant.slug, "company_id": company.id, "plan": tenant.plan, "region": tenant.region}
