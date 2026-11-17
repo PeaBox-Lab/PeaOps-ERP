@@ -333,6 +333,7 @@ class LoginRequest(BaseModel):
     company_id: int
     username: str
     password: str
+    mfa_code: str | None = None
 
 
 class RoleCreate(BaseModel):
@@ -366,3 +367,86 @@ class ApprovalCreate(BaseModel):
 class ApprovalDecision(BaseModel):
     expected_version: int = Field(ge=1)
     reason: str = Field(min_length=3, max_length=500)
+
+
+# Manufacturing / MRP schemas
+class BillOfMaterialCreate(BaseModel):
+    company_id: int
+    item_id: int
+    revision: int = 1
+    description: str = ""
+
+class BillOfMaterialLineCreate(BaseModel):
+    bom_id: int
+    component_id: int
+    quantity: Decimal = Field(default=Decimal("1"), ge=0)
+
+class WorkOrderCreate(BaseModel):
+    company_id: int
+    number: str
+    bom_id: int | None = None
+    status: str = "draft"
+    planned_date: date
+    scheduled_date: date | None = None
+    quantity: Decimal = Field(default=Decimal("1"), ge=0)
+
+# Project schemas
+class ProjectCreate(BaseModel):
+    company_id: int
+    code: str
+    name: str
+    description: str = ""
+    start_date: date
+    end_date: date | None = None
+    status: str = "planning"
+    budget: Decimal = Field(default=Decimal("0"), ge=0)
+
+class ProjectTaskCreate(BaseModel):
+    project_id: int
+    name: str
+    description: str = ""
+    order: int = 0
+    status: str = "pending"
+    assigned_to: str = ""
+    due_date: date | None = None
+    estimated_hours: Decimal = Field(default=Decimal("0"), ge=0)
+    actual_hours: Decimal = Field(default=Decimal("0"), ge=0)
+
+# Maintenance / Assets schemas
+class MaintenanceAssetCreate(BaseModel):
+    company_id: int
+    code: str
+    name: str
+    category: str = ""
+    purchase_date: date
+    warranty_expiry: date | None = None
+    location: str = ""
+    status: str = "active"
+
+class MaintenanceWorkOrderCreate(BaseModel):
+    company_id: int
+    number: str
+    asset_id: int
+    requested_by: str = ""
+    work_description: str = ""
+    status: str = "open"
+    priority: str = "medium"
+    requested_date: date = Field(default_factory=date.today)
+
+# Finance / consolidation schemas
+class LedgerConsolidationCreate(BaseModel):
+    company_id: int
+    period_start: date
+    period_end: date
+    status: str = "draft"
+    notes: str = ""
+
+class TreasuryAccountCreate(BaseModel):
+    company_id: int
+    code: str
+    name: str
+    currency: str = "INR"
+    balance: Decimal = Field(default=Decimal("0"), ge=0)
+    account_type: str = "bank"
+    bank_account_id: int | None = None
+    active: bool = True

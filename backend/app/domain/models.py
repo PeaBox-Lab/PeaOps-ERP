@@ -698,6 +698,8 @@ class User(Base):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    mfa_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Role(Base):
@@ -763,3 +765,212 @@ class ApprovalRecord(Base):
     version: Mapped[int] = mapped_column(default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    entity_type: Mapped[str] = mapped_column(String(50), index=True)
+    entity_id: Mapped[str] = mapped_column(String(80), index=True)
+    filename: Mapped[str] = mapped_column(String(240))
+    file_path: Mapped[str] = mapped_column(String(500))
+    content_type: Mapped[str] = mapped_column(String(120), default="application/octet-stream")
+    uploaded_by: Mapped[str] = mapped_column(String(120), default="system")
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class BankReconciliation(Base):
+    __tablename__ = "bank_reconciliations"
+    __table_args__ = (UniqueConstraint("company_id", "bank_account_id", "statement_date", name="uq_bank_recon"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    bank_account_id: Mapped[int] = mapped_column(ForeignKey("bank_accounts.id"), index=True)
+    statement_date: Mapped[date] = mapped_column(Date)
+    opening_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    closing_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class FixedAsset(Base):
+    __tablename__ = "fixed_assets"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_fixed_asset_company_code"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    code: Mapped[str] = mapped_column(String(40), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    category: Mapped[str] = mapped_column(String(60), default="")
+    purchase_date: Mapped[date] = mapped_column(Date)
+    cost: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    salvage_value: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    useful_life_months: Mapped[int] = mapped_column(default=60)
+    depreciation_method: Mapped[str] = mapped_column(String(20), default="straight_line")
+    accumulated_depreciation: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Lead(Base):
+    __tablename__ = "leads"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    email: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    source: Mapped[str] = mapped_column(String(60), default="")
+    status: Mapped[str] = mapped_column(String(20), default="new")
+    owner: Mapped[str] = mapped_column(String(120), default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Opportunity(Base):
+    __tablename__ = "opportunities"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("parties.id"), nullable=True)
+    title: Mapped[str] = mapped_column(String(160))
+    stage: Mapped[str] = mapped_column(String(30), default="prospecting")
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    probability: Mapped[int] = mapped_column(default=10)
+    expected_close: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    channel: Mapped[str] = mapped_column(String(20), default="in_app")
+    title: Mapped[str] = mapped_column(String(160))
+    body: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="unread")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class BillOfMaterial(Base):
+    __tablename__ = "bill_of_materials"
+    __table_args__ = (UniqueConstraint("company_id", "item_id", "revision", name="uq_bom_company_item_revision"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    revision: Mapped[int] = mapped_column(default=1)
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    lines: Mapped[list[BillOfMaterialLine]] = relationship(back_populates="bom", cascade="all, delete-orphan")
+
+
+class BillOfMaterialLine(Base):
+    __tablename__ = "bill_of_material_lines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bom_id: Mapped[int] = mapped_column(ForeignKey("bill_of_materials.id"), index=True)
+    component_id: Mapped[int] = mapped_column(ForeignKey("items.id"), index=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("1"))
+    bom: Mapped[BillOfMaterial] = relationship(back_populates="lines")
+
+
+class WorkOrder(Base):
+    __tablename__ = "work_orders"
+    __table_args__ = (UniqueConstraint("company_id", "number", name="uq_work_order_company_number"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    number: Mapped[str] = mapped_column(String(40), index=True)
+    bom_id: Mapped[int] = mapped_column(ForeignKey("bill_of_materials.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    planned_date: Mapped[date] = mapped_column(Date)
+    scheduled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    completed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("1"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Project(Base):
+    __tablename__ = "projects"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_project_company_code"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    code: Mapped[str] = mapped_column(String(40), index=True)
+    name: Mapped[str] = mapped_column(String(180))
+    description: Mapped[str] = mapped_column(Text, default="")
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="planning")
+    budget: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    tasks: Mapped[list[ProjectTask]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+
+class ProjectTask(Base):
+    __tablename__ = "project_tasks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str] = mapped_column(Text, default="")
+    order: Mapped[int] = mapped_column(default=0)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    assigned_to: Mapped[str] = mapped_column(String(120), default="")
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    estimated_hours: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    actual_hours: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    project: Mapped[Project] = relationship(back_populates="tasks")
+
+
+class MaintenanceAsset(Base):
+    __tablename__ = "maintenance_assets"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_asset_company_code"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    code: Mapped[str] = mapped_column(String(40), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    category: Mapped[str] = mapped_column(String(60), default="")
+    purchase_date: Mapped[date] = mapped_column(Date)
+    warranty_expiry: Mapped[date | None] = mapped_column(Date, nullable=True)
+    location: Mapped[str] = mapped_column(String(120), default="")
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class MaintenanceWorkOrder(Base):
+    __tablename__ = "maintenance_work_orders"
+    __table_args__ = (UniqueConstraint("company_id", "number", name="uq_mwo_company_number"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    number: Mapped[str] = mapped_column(String(40), index=True)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("maintenance_assets.id"), index=True)
+    requested_by: Mapped[str] = mapped_column(String(120), default="")
+    work_description: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    priority: Mapped[str] = mapped_column(String(20), default="medium")
+    requested_date: Mapped[date] = mapped_column(Date, default=date.today)
+    completed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class LedgerConsolidation(Base):
+    __tablename__ = "ledger_consolidations"
+    __table_args__ = (UniqueConstraint("company_id", "period_start", "period_end", name="uq_consolidation_company_period"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    consolidated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class TreasuryAccount(Base):
+    __tablename__ = "treasury_accounts"
+    __table_args__ = (UniqueConstraint("company_id", "code", name="uq_treasury_account_company_code"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    code: Mapped[str] = mapped_column(String(30), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    currency: Mapped[str] = mapped_column(String(3), default="INR")
+    balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
+    account_type: Mapped[str] = mapped_column(String(30), default="bank")
+    bank_account_id: Mapped[int | None] = mapped_column(ForeignKey("bank_accounts.id"), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

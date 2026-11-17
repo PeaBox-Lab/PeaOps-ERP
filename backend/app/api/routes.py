@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta
 import json
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func, String
 from sqlalchemy.orm import Session, selectinload
 from app.core.db import get_db
@@ -10,6 +11,7 @@ from app.core.config import settings
 from app.security.rules import hash_password, verify_password, create_access_token, normalize_permissions, create_refresh_token, hash_refresh_token, decode_access_token
 from app.security.service import permissions_for_user, require_permission
 from app.security.sod import validate_role_permissions, require_distinct_actor, require_version, require_approved_record
+from app.security.mfa import generate_secret, verify_totp
 from app.domain.models import (
     Company, Account, JournalEntry, JournalLine, AuditEvent, Party, FiscalPeriod,
     NumberSequence, BankAccount, Invoice, InvoiceLine, Payment, Item,
@@ -20,7 +22,11 @@ from app.domain.models import (
     InventoryMovement, StockTransfer, StockTransferLine, IntegrationEvent, DocumentLink,
     PostingProfile, SalesDelivery, SalesDeliveryLine, SupplierInvoiceMatch,
     SavedReport, ReportRun, DataQualityFinding, User, Role, RolePermission,
-    UserRole, SecurityEvent, AuthSession, ApprovalRecord
+    UserRole, SecurityEvent, AuthSession, ApprovalRecord, Notification, Attachment, BankReconciliation, FixedAsset, Lead, Opportunity,
+    BillOfMaterial, BillOfMaterialLine, WorkOrder,
+    Project, ProjectTask,
+    MaintenanceAsset, MaintenanceWorkOrder,
+    LedgerConsolidation, TreasuryAccount
 )
 from .schemas import (
     CompanyCreate, AccountCreate, JournalCreate, PartyCreate, FiscalPeriodCreate,
@@ -31,7 +37,11 @@ from .schemas import (
     InventoryMovementCreate, StockTransferCreate, InventoryReservation, PostingProfileCreate,
     SalesDeliveryCreate, IntegratedSalesInvoiceCreate, SupplierInvoiceIntegratedCreate,
     SavedReportCreate, ReportRunCreate, UserCreate, LoginRequest, RoleCreate,
-    UserRoleAssignment, RefreshRequest, LogoutRequest, ApprovalCreate, ApprovalDecision
+    UserRoleAssignment, RefreshRequest, LogoutRequest, ApprovalCreate, ApprovalDecision,
+    BillOfMaterialCreate, BillOfMaterialLineCreate, WorkOrderCreate,
+    ProjectCreate, ProjectTaskCreate,
+    MaintenanceAssetCreate, MaintenanceWorkOrderCreate,
+    LedgerConsolidationCreate, TreasuryAccountCreate
 )
 router = APIRouter(prefix="/api/v1")
 def audit(db: Session, action: str, entity_type: str, entity_id: int | str, details: str = ""):
@@ -983,6 +993,95 @@ def ready_health(db:Session=Depends(get_db)):
         raise HTTPException(503,"Database readiness check failed")
 
 
+@router.get("/notifications")
+def list_notifications(company_id: int, user_id: int | None = None, db: Session = Depends(get_db)):
+    q = select(Notification).where(Notification.company_id == company_id)
+    if user_id is not None:
+        q = q.where(Notification.user_id == user_id)
+    return db.scalars(q.order_by(Notification.created_at.desc())).all()
+
+@router.post("/notifications")
+def create_notification(company_id: int, title: str, body: str = "", user_id: int | None = None, db: Session = Depends(get_db)):
+    n = Notification(company_id=company_id, user_id=user_id, title=title, body=body)
+    db.add(n); db.commit(); db.refresh(n)
+    return n
+
+@router.get("/attachments")
+def list_attachments(company_id: int, entity_type: str | None = None, entity_id: str | None = None, db: Session = Depends(get_db)):
+    q = select(Attachment).where(Attachment.company_id == company_id)
+    if entity_type:
+        q = q.where(Attachment.entity_type == entity_type)
+    if entity_id:
+        q = q.where(Attachment.entity_id == entity_id)
+    return db.scalars(q.order_by(Attachment.uploaded_at.desc())).all()
+
+@router.post("/attachments")
+def create_attachment(company_id: int, entity_type: str, entity_id: str, filename: str, file_path: str, content_type: str = "application/octet-stream", uploaded_by: str = "system", db: Session = Depends(get_db)):
+    a = Attachment(company_id=company_id, entity_type=entity_type, entity_id=entity_id, filename=filename, file_path=file_path, content_type=content_type, uploaded_by=uploaded_by)
+    db.add(a); db.commit(); db.refresh(a)
+    return a
+
+@router.get("/invoices/export.csv")
+def export_invoices_csv(company_id: int, db: Session = Depends(get_db)):
+    import csv, io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "number", "invoice_type", "party_id", "invoice_date", "due_date", "total_amount", "paid_amount", "status"])
+    for inv in db.scalars(select(Invoice).where(Invoice.company_id == company_id)).all():
+        w.writerow([inv.id, inv.number, inv.invoice_type, inv.party_id, inv.invoice_date, inv.due_date, inv.total_amount, inv.paid_amount, inv.status])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=invoices.csv"})
+
+@router.get("/bank-reconciliations")
+def list_bank_reconciliations(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(BankReconciliation).where(BankReconciliation.company_id == company_id).order_by(BankReconciliation.statement_date.desc())).all()
+
+@router.post("/bank-reconciliations")
+def create_bank_reconciliation(company_id: int, bank_account_id: int, statement_date: date, opening_balance: Decimal = Decimal("0"), closing_balance: Decimal = Decimal("0"), notes: str = "", db: Session = Depends(get_db)):
+    r = BankReconciliation(company_id=company_id, bank_account_id=bank_account_id, statement_date=statement_date, opening_balance=opening_balance, closing_balance=closing_balance, notes=notes)
+    db.add(r); db.commit(); db.refresh(r)
+    return r
+
+@router.get("/fixed-assets")
+def list_fixed_assets(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(FixedAsset).where(FixedAsset.company_id == company_id).order_by(FixedAsset.code)).all()
+
+@router.post("/fixed-assets")
+def create_fixed_asset(company_id: int, code: str, name: str, purchase_date: date, cost: Decimal, useful_life_months: int = 60, salvage_value: Decimal = Decimal("0"), category: str = "", db: Session = Depends(get_db)):
+    a = FixedAsset(company_id=company_id, code=code, name=name, purchase_date=purchase_date, cost=cost, useful_life_months=useful_life_months, salvage_value=salvage_value, category=category)
+    db.add(a); db.commit(); db.refresh(a)
+    return a
+
+@router.post("/fixed-assets/{asset_id}/depreciate")
+def depreciate_asset(asset_id: int, months: int = 1, db: Session = Depends(get_db)):
+    a = db.get(FixedAsset, asset_id)
+    if not a or a.status != "active":
+        raise HTTPException(404, "Asset not found or inactive")
+    monthly = (a.cost - a.salvage_value) / Decimal(a.useful_life_months)
+    a.accumulated_depreciation = (Decimal(a.accumulated_depreciation) + monthly * months).quantize(Decimal("0.01"))
+    db.commit(); db.refresh(a)
+    return a
+
+@router.get("/leads")
+def list_leads(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(Lead).where(Lead.company_id == company_id).order_by(Lead.created_at.desc())).all()
+
+@router.post("/leads")
+def create_lead(company_id: int, name: str, email: str | None = None, phone: str | None = None, source: str = "", owner: str = "system", db: Session = Depends(get_db)):
+    l = Lead(company_id=company_id, name=name, email=email, phone=phone, source=source, owner=owner)
+    db.add(l); db.commit(); db.refresh(l)
+    return l
+
+@router.get("/opportunities")
+def list_opportunities(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(Opportunity).where(Opportunity.company_id == company_id).order_by(Opportunity.created_at.desc())).all()
+
+@router.post("/opportunities")
+def create_opportunity(company_id: int, title: str, amount: Decimal = Decimal("0"), stage: str = "prospecting", probability: int = 10, customer_id: int | None = None, db: Session = Depends(get_db)):
+    o = Opportunity(company_id=company_id, title=title, amount=amount, stage=stage, probability=probability, customer_id=customer_id)
+    db.add(o); db.commit(); db.refresh(o)
+    return o
+
 @router.post("/auth/login")
 def login(data:LoginRequest,db:Session=Depends(get_db)):
     user=db.scalar(select(User).where(User.company_id==data.company_id,User.username==data.username))
@@ -994,6 +1093,10 @@ def login(data:LoginRequest,db:Session=Depends(get_db)):
         db.add(SecurityEvent(company_id=data.company_id,event_type="login",username=data.username,outcome="denied",details="invalid credentials or locked account"));db.commit()
         raise HTTPException(401,"Invalid credentials or account unavailable")
     user.failed_login_count=0;user.locked_until=None;user.last_login_at=now
+    if user.mfa_enabled and data.mfa_code:
+        if not verify_totp(user.mfa_secret, data.mfa_code):
+            db.add(SecurityEvent(company_id=user.company_id,event_type="login",username=user.username,outcome="denied",details="mfa_failed"));db.commit()
+            raise HTTPException(401,"Invalid MFA code")
     permissions=permissions_for_user(db,user.id)
     token=create_access_token(str(user.id),user.company_id,permissions,settings.secret_key,settings.access_token_minutes*60)
     refresh=create_refresh_token();payload=decode_access_token(token,settings.secret_key)
@@ -1001,6 +1104,34 @@ def login(data:LoginRequest,db:Session=Depends(get_db)):
     db.add(SecurityEvent(company_id=user.company_id,event_type="login",username=user.username,outcome="success"));db.commit()
     return {"access_token":token,"refresh_token":refresh,"token_type":"bearer","expires_in":settings.access_token_minutes*60,"permissions":permissions}
 
+# ---- MFA (TOTP) support ----
+@router.get("/auth/mfa/setup")
+def setup_mfa(company_id: int, db: Session = Depends(get_db)):
+    secret = generate_secret()
+    user=db.scalar(select(User).where(User.company_id==company_id))
+    if not user or not user.active:
+        raise HTTPException(404,"User not found or inactive")
+    user.mfa_secret=secret;user.mfa_enabled=False;db.add(user);db.commit();db.refresh(user)
+    return {"message":"MFA secret generated","secret":secret,"enabled":False}
+
+@router.post("/auth/mfa/verify")
+def verify_mfa(company_id: int, code: str, db: Session = Depends(get_db)):
+    user=db.scalar(select(User).where(User.company_id==company_id))
+    if not user or not user.active or not user.mfa_enabled:
+        raise HTTPException(400,"MFA not enabled on this account")
+    if not verify_totp(user.mfa_secret, code):
+        raise HTTPException(401,"Invalid TOTP code")
+    user.failed_login_count=0;user.locked_until=None;user.last_login_at=datetime.utcnow();db.add(SecurityEvent(company_id=user.company_id,event_type="mfa_verify",username=user.username,outcome="success",details=f"MFA verified"));db.commit();db.refresh(user)
+    return {"message":"MFA verified"}
+
+@router.post("/auth/mfa/reset")
+def reset_mfa(company_id: int, refresh_token: str, db: Session = Depends(get_db)):
+    session=db.scalar(select(AuthSession).where(AuthSession.refresh_token_hash==hash_refresh_token(refresh_token)))
+    now=datetime.utcnow()
+    if not session or session.revoked_at or session.expires_at<=now:raise HTTPException(401,"Refresh token unavailable")
+    user=session.user_id
+    # recreate sessions? skip for simplicity
+    return {"message":"MFA reset placeholder"}
 
 @router.post("/admin/users")
 def create_user(data:UserCreate,db:Session=Depends(get_db),principal=Depends(require_permission("admin:users"))):
@@ -1067,3 +1198,118 @@ def approve_action(approval_id:int,data:ApprovalDecision,db:Session=Depends(get_
     except (PermissionError,ValueError) as exc:raise HTTPException(409,str(exc))
     obj.status="approved";obj.approved_by=str(principal['sub']);obj.reason=data.reason;obj.decided_at=datetime.utcnow();db.commit()
     return {"id":obj.id,"status":obj.status,"version":obj.version,"approved_by":obj.approved_by}
+
+
+# --- Manufacturing / MRP ---
+@router.get("/bill-of-materials")
+def list_boms(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(BillOfMaterial).where(BillOfMaterial.company_id == company_id).order_by(BillOfMaterial.created_at.desc())).all()
+
+@router.post("/bill-of-materials")
+def create_bom(data: BillOfMaterialCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id: raise HTTPException(403, "Cross-company access denied")
+    bom = BillOfMaterial(company_id=data.company_id, item_id=data.item_id, revision=data.revision, description=data.description)
+    db.add(bom); db.commit(); db.refresh(bom)
+    return bom
+
+@router.post("/bill-of-materials/{bom_id}/lines")
+def add_bom_line(bom_id: int, data: BillOfMaterialLineCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    bom = db.get(BillOfMaterial, bom_id)
+    if not bom: raise HTTPException(404, "BOM not found")
+    if int(principal['company_id']) != bom.company_id: raise HTTPException(403, "Cross-company access denied")
+    line = BillOfMaterialLine(bom_id=bom_id, component_id=data.component_id, quantity=data.quantity)
+    db.add(line); db.commit(); db.refresh(line)
+    return line
+
+@router.get("/work-orders")
+def list_work_orders(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(WorkOrder).where(WorkOrder.company_id == company_id).order_by(WorkOrder.created_at.desc())).all()
+
+@router.post("/work-orders")
+def create_work_order(data: WorkOrderCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id: raise HTTPException(403, "Cross-company access denied")
+    wo = WorkOrder(company_id=data.company_id, number=data.number, bom_id=data.bom_id, status=data.status,
+                   planned_date=data.planned_date, scheduled_date=data.scheduled_date, quantity=data.quantity)
+    db.add(wo); db.commit(); db.refresh(wo)
+    return wo
+
+# --- Projects ---
+@router.get("/projects")
+def list_projects(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(Project).where(Project.company_id == company_id).order_by(Project.created_at.desc())).all()
+
+@router.post("/projects")
+def create_project(data: ProjectCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id: raise HTTPException(403, "Cross-company access denied")
+    p = Project(company_id=data.company_id, code=data.code, name=data.name, description=data.description,
+                start_date=data.start_date, end_date=data.end_date, status=data.status, budget=data.budget)
+    db.add(p); db.commit(); db.refresh(p)
+    return p
+
+@router.get("/projects/{project_id}/tasks")
+def list_project_tasks(project_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(ProjectTask).where(ProjectTask.project_id == project_id).order_by(ProjectTask.order)).all()
+
+@router.post("/projects/{project_id}/tasks")
+def create_project_task(project_id: int, data: ProjectTaskCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    project = db.get(Project, project_id)
+    if not project: raise HTTPException(404, "Project not found")
+    if int(principal['company_id']) != project.company_id: raise HTTPException(403, "Cross-company access denied")
+    task = ProjectTask(project_id=project_id, name=data.name, description=data.description, order=data.order,
+                       status=data.status, assigned_to=data.assigned_to, due_date=data.due_date,
+                       estimated_hours=data.estimated_hours, actual_hours=data.actual_hours)
+    db.add(task); db.commit(); db.refresh(task)
+    return task
+
+# --- Maintenance / Assets ---
+@router.get("/maintenance-assets")
+def list_maintenance_assets(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(MaintenanceAsset).where(MaintenanceAsset.company_id == company_id).order_by(MaintenanceAsset.created_at.desc())).all()
+
+@router.post("/maintenance-assets")
+def create_maintenance_asset(data: MaintenanceAssetCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id: raise HTTPException(403, "Cross-company access denied")
+    a = MaintenanceAsset(company_id=data.company_id, code=data.code, name=data.name, category=data.category,
+                         purchase_date=data.purchase_date, warranty_expiry=data.warranty_expiry,
+                         location=data.location, status=data.status)
+    db.add(a); db.commit(); db.refresh(a)
+    return a
+
+@router.get("/maintenance-work-orders")
+def list_maintenance_work_orders(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(MaintenanceWorkOrder).where(MaintenanceWorkOrder.company_id == company_id).order_by(MaintenanceWorkOrder.created_at.desc())).all()
+
+@router.post("/maintenance-work-orders")
+def create_maintenance_work_order(data: MaintenanceWorkOrderCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id: raise HTTPException(403, "Cross-company access denied")
+    wo = MaintenanceWorkOrder(company_id=data.company_id, number=data.number, asset_id=data.asset_id,
+                              requested_by=data.requested_by, work_description=data.work_description,
+                              status=data.status, priority=data.priority, requested_date=data.requested_date)
+    db.add(wo); db.commit(); db.refresh(wo)
+    return wo
+
+# --- Finance / Consolidation & Treasury ---
+@router.get("/ledger-consolidations")
+def list_ledger_consolidations(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(LedgerConsolidation).where(LedgerConsolidation.company_id == company_id).order_by(LedgerConsolidation.created_at.desc())).all()
+
+@router.post("/ledger-consolidations")
+def create_ledger_consolidation(data: LedgerConsolidationCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id: raise HTTPException(403, "Cross-company access denied")
+    c = LedgerConsolidation(company_id=data.company_id, period_start=data.period_start, period_end=data.period_end,
+                            status=data.status, notes=data.notes)
+    db.add(c); db.commit(); db.refresh(c)
+    return c
+
+@router.get("/treasury-accounts")
+def list_treasury_accounts(company_id: int, db: Session = Depends(get_db)):
+    return db.scalars(select(TreasuryAccount).where(TreasuryAccount.company_id == company_id).order_by(TreasuryAccount.created_at.desc())).all()
+
+@router.post("/treasury-accounts")
+def create_treasury_account(data: TreasuryAccountCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id: raise HTTPException(403, "Cross-company access denied")
+    t = TreasuryAccount(company_id=data.company_id, code=data.code, name=data.name, currency=data.currency,
+                        balance=data.balance, account_type=data.account_type, bank_account_id=data.bank_account_id,
+                        active=data.active)
+    db.add(t); db.commit(); db.refresh(t)
+    return t

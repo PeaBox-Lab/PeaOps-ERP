@@ -25,3 +25,37 @@
 
 ## v0.8.2 outcome
 Approval binding is now implemented for journal posting, credit overrides, inventory adjustments and role assignments. Next pilot-completion work focuses on PostgreSQL concurrency/load evidence, full API/browser E2E, rate limiting, automated recovery drills and observability before the v0.9 GA-hardening line.
+
+## Future roadmap (detailed)
+
+### Phase 0 — Deployment readiness (now)
+- Ship `.env.example` for backend and production compose; document secret generation.
+- Add startup self-check (already in `validate_runtime`) and expand to verify DB connectivity + migrations applied.
+- Add rate limiting on `/auth/login` and `/auth/refresh`; lockout telemetry.
+- Add structured JSON logging + request-id correlation; ship to stdout for container collection.
+- Add `/health/live` and `/health/ready` (already present) to load balancer probes.
+
+### Phase 1 — Pilot completion (v0.8.x)
+- PostgreSQL concurrency/load tests (k6) covering invoice post, payment allocation, inventory adjustment.
+- Full API E2E suite (pytest + httpx) for finance/sales/procurement/inventory flows.
+- Browser E2E (Playwright) for login → dashboard → create invoice → payment.
+- Automated backup + restore drill in CI; verify RTO/RPO.
+- Observability: Prometheus metrics, Grafana dashboards, alerting on 5xx/lockouts.
+
+### Phase 2 — GA hardening (v0.9)
+- MFA (TOTP) and optional SSO (OIDC/SAML).
+- Complete domain authorization review; permission on every endpoint.
+- SoD matrix enforcement across all high-risk actions.
+- Security scanning in CI (bandit, pip-audit, npm audit, container scan).
+- Signed releases + SBOM + provenance.
+
+### Phase 3 — Core GA (v1.0)
+- Supported on-prem Server release with documented SLA.
+- Installer/upgrade scripts; zero-downtime migrations.
+- Performance baselines and capacity planning guide.
+
+### Phase 4 — Business expansion (v1.x)
+- Assets, Projects, CRM, Manufacturing/MRP, WMS, Service management modules.
+
+### Phase 5 — Cloud GA (v2.0)
+- Multi-tenant SaaS: tenant provisioning, isolation, billing, HA, autoscaling, DR.
