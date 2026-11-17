@@ -1,3 +1,4 @@
+
 from app.core.runtime import validate_runtime
 
 def test_development_allows_sqlite():assert validate_runtime('development','sqlite:///./peaops.db','change-me','http://localhost:5173')==[]

@@ -1,16 +1,10 @@
 name: Feature request
-description: Propose an outcome-focused product enhancement
-title: "[Feature]: "
-labels: [enhancement, needs-triage]
+description: Propose a PeaOps capability
 body:
   - type: textarea
-    id: problem
-    attributes: {label: Problem and affected users}
-    validations: {required: true}
-  - type: textarea
     id: outcome
-    attributes: {label: Desired outcome and acceptance criteria}
+    attributes: {label: User outcome}
     validations: {required: true}
   - type: textarea
-    id: controls
-    attributes: {label: Accounting, security, migration, or compatibility considerations}
+    id: acceptance
+    attributes: {label: Acceptance criteria}

@@ -1,3 +1,4 @@
+
 # Segregation of Duties - v0.8.1
 
 ## Implemented foundations

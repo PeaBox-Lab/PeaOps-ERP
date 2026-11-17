@@ -1,3 +1,4 @@
+
 from decimal import Decimal
 import pytest
 from app.domain.inventory_rules import apply_movement,weighted_average,issue_value,transfer_quantities,reorder_status,validate_tracking,signed_quantity

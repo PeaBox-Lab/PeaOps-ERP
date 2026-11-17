@@ -1,16 +1,7 @@
 ## Summary
-
-## Linked issue / user stories
-
-## Changes
-
-## Validation
-- [ ] Unit tests
-- [ ] Migration tested
-- [ ] Security impact reviewed
-- [ ] Documentation updated
-- [ ] Backward compatibility considered
-
-## Screenshots / API examples
-
-## Deployment or rollback notes
+## User story / acceptance criteria
+## Security, data and migration impact
+## Tests run
+## Documentation updated
+- [ ] `bash scripts/check.sh` passes
+- [ ] No secrets/customer data included

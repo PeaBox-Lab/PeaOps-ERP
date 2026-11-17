@@ -1,3 +1,4 @@
+
 #!/usr/bin/env sh
 set -eu
 for name in POSTGRES_PASSWORD PEAOPS_SECRET_KEY PEAOPS_ALLOWED_ORIGINS; do eval value="\${$name:-}"; [ -n "$value" ] || { echo "$name is required" >&2; exit 1; }; done

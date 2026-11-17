@@ -1,3 +1,4 @@
+
 # Inventory and Warehouse User Guide
 
 ## Workflow
@@ -12,3 +13,6 @@
 ## Controls
 
 Negative stock is blocked unless policy permits it. Serial movements require quantity one. Transfers create equal source and destination quantities. Do not edit ledger history; investigate and use a controlled adjustment.
+
+## v0.8.2 manual adjustments
+Manual adjustment-in/out operations require an approved `inventory_adjustment` record bound to the exact inventory balance.

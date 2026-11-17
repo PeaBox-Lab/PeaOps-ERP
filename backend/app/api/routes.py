@@ -1,14 +1,15 @@
+
 from datetime import date, datetime, timedelta
 import json
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, String
 from sqlalchemy.orm import Session, selectinload
 from app.core.db import get_db
 from app.core.config import settings
-from app.security.rules import hash_password, verify_password, create_access_token, normalize_permissions, create_refresh_token, hash_refresh_token
+from app.security.rules import hash_password, verify_password, create_access_token, normalize_permissions, create_refresh_token, hash_refresh_token, decode_access_token
 from app.security.service import permissions_for_user, require_permission
-from app.security.sod import validate_role_permissions, require_distinct_actor, require_version
+from app.security.sod import validate_role_permissions, require_distinct_actor, require_version, require_approved_record
 from app.domain.models import (
     Company, Account, JournalEntry, JournalLine, AuditEvent, Party, FiscalPeriod,
     NumberSequence, BankAccount, Invoice, InvoiceLine, Payment, Item,
@@ -35,6 +36,16 @@ from .schemas import (
 router = APIRouter(prefix="/api/v1")
 def audit(db: Session, action: str, entity_type: str, entity_id: int | str, details: str = ""):
     db.add(AuditEvent(action=action, entity_type=entity_type, entity_id=str(entity_id), details=details))
+def require_approved_action(db: Session, approval_id: int | None, company_id: int, entity_type: str, entity_id: int | str, action: str):
+    if not approval_id:
+        raise HTTPException(409, f"Approved {action} record is required")
+    approval = db.get(ApprovalRecord, approval_id)
+    try:
+        require_approved_record(approval, company_id, entity_type, str(entity_id), action)
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(409, str(exc))
+    return approval
+
 def invoice_view(obj: Invoice):
     return {
         "id": obj.id, "number": obj.number, "invoice_type": obj.invoice_type,
@@ -45,7 +56,7 @@ def invoice_view(obj: Invoice):
     }
 @router.get("/health")
 def health():
-    return {"status": "ok", "product": "PeaOps", "version": "0.8.1"}
+    return {"status": "ok", "product": "PeaOps", "version": "0.8.2"}
 @router.post("/companies")
 def create_company(data: CompanyCreate, db: Session = Depends(get_db)):
     obj = Company(**data.model_dump())
@@ -76,9 +87,10 @@ def create_journal(data: JournalCreate, db: Session = Depends(get_db)):
     db.add(obj); db.commit(); db.refresh(obj)
     return {"id": obj.id, "reference": obj.reference, "status": obj.status}
 @router.post("/journal-entries/{entry_id}/post")
-def post_journal(entry_id: int, db: Session = Depends(get_db)):
+def post_journal(entry_id: int, approval_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
     obj = db.get(JournalEntry, entry_id)
     if not obj: raise HTTPException(404, "Journal entry not found")
+    require_approved_action(db, approval_id, obj.company_id, "journal_entry", obj.id, "journal_post")
     try: obj.post()
     except ValueError as exc: raise HTTPException(409, str(exc))
     audit(db, "post", "journal_entry", obj.id, obj.reference); db.commit()
@@ -301,6 +313,7 @@ def confirm_sales_order(order_id: int, data: OrderConfirmation, db: Session = De
     except ValueError as exc:
         if not data.override_credit: raise HTTPException(409, str(exc))
         if not data.override_reason.strip(): raise HTTPException(400, "Credit override reason is required")
+        require_approved_action(db, data.approval_id, order.company_id, "sales_order", order.id, "credit_override")
         exposure = Decimal(receivables) + Decimal(pending) + Decimal(order.total_amount)
         audit(db, "credit_override", "sales_order", order.id, data.override_reason)
     order.status = "confirmed"; audit(db, "confirm", "sales_order", order.id, f"exposure={exposure}")
@@ -573,6 +586,8 @@ def create_inventory_movement(data: InventoryMovementCreate, db: Session = Depen
     policy = get_inventory_policy(db, data.company_id, data.item_id, data.warehouse_id)
     tracking = policy.tracking_mode if policy else "none"; allow_negative = policy.allow_negative if policy else False
     balance = get_inventory_balance(db, data.company_id, data.item_id, data.warehouse_id)
+    if data.movement_type in {"adjustment_in", "adjustment_out"}:
+        require_approved_action(db, data.approval_id, data.company_id, "inventory_balance", balance.id, "inventory_adjustment")
     try:
         validate_tracking(tracking, data.quantity, data.lot_number, data.serial_number)
         new_on_hand = apply_movement(balance.on_hand_quantity, data.movement_type, data.quantity, allow_negative)
@@ -956,14 +971,14 @@ def data_quality(company_id:int,db:Session=Depends(get_db)):
 
 @router.get("/health/live")
 def live_health():
-    return {"status":"alive","product":"PeaOps","version":"0.8.1"}
+    return {"status":"alive","product":"PeaOps","version":"0.8.2"}
 
 
 @router.get("/health/ready")
 def ready_health(db:Session=Depends(get_db)):
     try:
         db.execute(select(func.count(Company.id))).scalar()
-        return {"status":"ready","database":"ok","version":"0.8.1"}
+        return {"status":"ready","database":"ok","version":"0.8.2"}
     except Exception:
         raise HTTPException(503,"Database readiness check failed")
 
@@ -1011,6 +1026,7 @@ def assign_user_role(user_id:int,data:UserRoleAssignment,db:Session=Depends(get_
     user=db.get(User,user_id);role=db.get(Role,data.role_id)
     if not user or not role:raise HTTPException(404,"User or role not found")
     if user.company_id!=role.company_id or user.company_id!=int(principal['company_id']):raise HTTPException(403,"Cross-company role assignment denied")
+    require_approved_action(db, data.approval_id, user.company_id, "user", user.id, "role_assignment")
     db.add(UserRole(user_id=user.id,role_id=role.id));db.add(SecurityEvent(company_id=user.company_id,event_type="role_assign",username=user.username,outcome="success",details=role.code));db.commit()
     return {"user_id":user.id,"role_id":role.id,"assigned":True}
 

@@ -1,3 +1,4 @@
+
 # Sales User and Sales Operations Guide
 
 ## Workflow
@@ -13,3 +14,6 @@
 ## Exceptions
 
 Credit-limit override requires a reason but still needs organizational authorization. Delivery fails when quantity exceeds remaining order quantity or stock would become negative. Do not generate new replay keys to bypass an uncertain prior response.
+
+## v0.8.2 credit override
+When confirmation exceeds the credit limit, the override reason must be accompanied by an approved `credit_override` record bound to that sales order.

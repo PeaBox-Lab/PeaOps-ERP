@@ -1,3 +1,4 @@
+
 """Create the first company admin after migrations. Run from backend directory."""
 import getpass
 from sqlalchemy import select

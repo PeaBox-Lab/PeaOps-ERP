@@ -1,3 +1,4 @@
+
 #!/usr/bin/env sh
 set -eu
 if [ "$#" -ne 1 ]; then echo "Usage: restore.sh /backups/peaops-TIMESTAMP.dump" >&2; exit 2; fi

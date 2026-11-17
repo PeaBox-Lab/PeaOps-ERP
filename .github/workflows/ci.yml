@@ -1,44 +1,19 @@
 name: CI
-on:
-  push:
-    branches: [main]
-  pull_request:
-permissions:
-  contents: read
+on: [push, pull_request]
+permissions: {contents: read}
 jobs:
   backend:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: peaops
-          POSTGRES_PASSWORD: peaops-ci-password
-          POSTGRES_DB: peaops_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U peaops -d peaops_test"
-          --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: "3.12", cache: pip, cache-dependency-path: backend/requirements.txt}
+        with: {python-version: '3.12'}
       - run: pip install -r backend/requirements.txt
-      - run: PYTHONPATH=backend pytest backend/tests
-      - name: Migration smoke test
-        working-directory: backend
-        env:
-          PEAOPS_DATABASE_URL: postgresql+psycopg://peaops:peaops-ci-password@localhost:5432/peaops_test
-          PEAOPS_SECRET_KEY: ci-secret-key-at-least-32-characters-long
-          PEAOPS_ENVIRONMENT: test
-        run: alembic -c alembic.ini upgrade head
+      - run: bash scripts/check.sh
   frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: {node-version: "22", cache: npm, cache-dependency-path: frontend/package.json}
-      - run: npm install
-        working-directory: frontend
-      - run: npm run build
-        working-directory: frontend
+        with: {node-version: '22'}
+      - run: cd frontend && npm install && npm run build

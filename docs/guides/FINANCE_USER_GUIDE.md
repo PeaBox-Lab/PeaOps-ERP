@@ -1,3 +1,4 @@
+
 # Finance User and Controller Guide
 
 ## Core workflows
@@ -20,3 +21,6 @@
 ## Key controls
 
 Debits equal credits. Posted journals are immutable in principle. Allocations cannot exceed balances. Supplier match exceptions do not auto-post. Reporting depends on correct account types.
+
+## v0.8.2 journal posting
+Posting a journal requires an approved `journal_post` record bound to that journal entry. The preparer and checker must be distinct.

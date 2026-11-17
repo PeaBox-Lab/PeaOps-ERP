@@ -1,3 +1,4 @@
+
 #!/usr/bin/env sh
 set -eu
 : "${POSTGRES_DB:=peaops}"; : "${POSTGRES_USER:=peaops}"; : "${BACKUP_DIR:=/backups}"

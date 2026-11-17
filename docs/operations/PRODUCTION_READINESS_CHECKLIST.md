@@ -1,3 +1,4 @@
+
 # Production Readiness Checklist - v0.8
 
 v0.8 is a **production foundation and controlled-pilot candidate**, not unrestricted GA. A deployment may advance only when accountable owners verify each applicable gate.

@@ -1,3 +1,4 @@
+
 # Manager and Analyst Guide
 
 ## Available insight

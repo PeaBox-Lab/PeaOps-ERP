@@ -1,3 +1,4 @@
+
 # Permissions Catalog
 
 Permission names use `domain:action`; `domain:*` grants a domain and `admin:*` grants all current permissions.

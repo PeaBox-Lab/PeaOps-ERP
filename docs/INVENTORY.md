@@ -1,3 +1,4 @@
+
 # Inventory Module - v0.5
 
 ## Ledger model

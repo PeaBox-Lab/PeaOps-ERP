@@ -1,3 +1,4 @@
+
 .PHONY: check test migrate server-up server-down backup
 check:
 	bash scripts/check.sh

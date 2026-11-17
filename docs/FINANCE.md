@@ -1,3 +1,4 @@
+
 # Finance Module - v0.2
 ## Document lifecycle
 AR and AP invoices begin in `draft`. Posting recalculates subtotal, tax and total from lines, validates due dates and moves the invoice to `open`. Allocations move it to `partially_paid` or `paid`. Payments cannot be allocated beyond either the payment's unallocated amount or the invoice's outstanding amount.

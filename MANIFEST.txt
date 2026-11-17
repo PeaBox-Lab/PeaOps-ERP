@@ -21,10 +21,10 @@
 ./SECURITY.md
 ./SUPPORT.md
 ./backend/Dockerfile
+./backend/alembic.ini
 ./backend/alembic/env.py
 ./backend/alembic/script.py.mako
 ./backend/alembic/versions/20261116_0001_baseline.py
-./backend/alembic.ini
 ./backend/app/__init__.py
 ./backend/app/api/__init__.py
 ./backend/app/api/routes.py
@@ -78,6 +78,7 @@
 ./docs/PROCUREMENT.md
 ./docs/RELEASE_NOTES_v0.8.0.md
 ./docs/RELEASE_NOTES_v0.8.1.md
+./docs/RELEASE_NOTES_v0.8.2.md
 ./docs/ROADMAP.md
 ./docs/SALES.md
 ./docs/SECURITY.md
@@ -117,6 +118,7 @@
 ./docs/product/TRACEABILITY_MATRIX.md
 ./docs/product/USER_STORIES.md
 ./docs/product/VERSION_HISTORY.md
+./docs/security/APPROVAL_BINDING.md
 ./docs/security/PERMISSIONS_CATALOG.md
 ./docs/security/SECURITY_CONTROLS_MATRIX.md
 ./docs/security/SEGREGATION_OF_DUTIES.md

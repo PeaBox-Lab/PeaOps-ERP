@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.db import Base, engine
@@ -11,11 +12,11 @@ if runtime_errors:
     raise RuntimeError("; ".join(runtime_errors))
 if settings.auto_create_schema:
     Base.metadata.create_all(bind=engine)
-app = FastAPI(title="PeaOps ERP API", version="0.8.1")
+app = FastAPI(title="PeaOps ERP API", version="0.8.2")
 app.add_middleware(CORSMiddleware, allow_origins=[x.strip() for x in settings.allowed_origins.split(",") if x.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.middleware("http")(security_headers)
 app.middleware("http")(authorization_policy)
 app.include_router(router)
 @app.get("/")
 def root():
-    return {"product": "PeaOps", "version": "0.8.1", "message": "Pilot hardening operating core", "docs": "/docs"}
+    return {"product": "PeaOps", "version": "0.8.2", "message": "Pilot hardening operating core", "docs": "/docs"}

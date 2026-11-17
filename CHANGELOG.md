@@ -1,3 +1,4 @@
+
 # Changelog
 
 ## 0.8.1 - 2026-11-16
@@ -52,3 +53,13 @@
 ## 0.1.0 - 2026-11-16
 ### Added
 - ERP foundation and GL.
+## 0.8.2 - 2026-11-17
+### Added
+- Exact approval binding for four high-risk business/admin actions.
+- Approval-binding security guide and four cumulative user stories.
+- Five approval-binding rule tests.
+### Fixed
+- Missing API imports used by authentication and integrated sales posting.
+- Mutable report-parameter defaults.
+### Changed
+- Product/API/frontend version advanced to 0.8.2.

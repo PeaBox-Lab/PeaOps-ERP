@@ -1,4 +1,3 @@
-# Rename to CODEOWNERS after replacing these example handles.
-* @OWNER
-/backend/app/security/ @SECURITY_OWNER
-/backend/alembic/ @DATABASE_OWNER
+* @your-github-handle
+/docs/ @your-docs-owner
+/backend/app/security/ @your-security-owner

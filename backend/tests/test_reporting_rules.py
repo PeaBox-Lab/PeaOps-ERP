@@ -1,3 +1,4 @@
+
 from decimal import Decimal
 import pytest
 from app.domain.reporting_rules import account_nature,natural_balance,income_statement,balance_sheet,percentage,inventory_turnover,days_outstanding,validate_report_parameters,render_csv

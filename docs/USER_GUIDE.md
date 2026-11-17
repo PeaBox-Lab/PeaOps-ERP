@@ -1,4 +1,5 @@
-# PeaOps Complete User Guide - v0.7
+
+# PeaOps Complete User Guide - v0.8.2
 
 This is the navigation guide for everyone involved in selecting, implementing, administering, operating, supporting, auditing or using PeaOps.
 
@@ -56,3 +57,6 @@ Documents progress through explicit statuses. Do not edit posted financial or in
 - Session/access controls: `security/SESSION_AND_ACCESS_CONTROL.md`
 - Segregation of duties: `security/SEGREGATION_OF_DUTIES.md`
 - Pilot operations: `operations/PILOT_OPERATIONS_GUIDE.md`
+
+## v0.8.2 approval binding
+High-risk journal posting, credit override, manual inventory adjustment and role assignment now require an exact approved maker-checker record. See `security/APPROVAL_BINDING.md`.

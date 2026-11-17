@@ -1,3 +1,4 @@
+
 from datetime import date
 from decimal import Decimal
 from typing import Literal
@@ -118,6 +119,7 @@ class QuoteConversion(BaseModel):
     promised_date: date | None = None
 class OrderConfirmation(BaseModel):
     override_credit: bool = False
+    approval_id: int | None = Field(default=None, ge=1)
     override_reason: str = Field(default="", max_length=240)
 
 
@@ -218,6 +220,7 @@ class InventoryPolicyCreate(BaseModel):
 
 class InventoryMovementCreate(BaseModel):
     company_id: int
+    approval_id: int | None = Field(default=None, ge=1)
     item_id: int
     warehouse_id: int
     movement_type: Literal["opening", "receipt", "issue", "adjustment_in", "adjustment_out"]
@@ -307,7 +310,7 @@ class SavedReportCreate(BaseModel):
     company_id: int
     name: str = Field(min_length=2, max_length=120)
     report_type: Literal["income_statement","balance_sheet","trial_balance","ar_ageing","ap_ageing","sales_performance","procurement_performance","inventory_summary","integration_health"]
-    parameters: dict = {}
+    parameters: dict = Field(default_factory=dict)
     owner: str = Field(default="system", min_length=1, max_length=120)
     shared: bool = False
 
@@ -315,7 +318,7 @@ class SavedReportCreate(BaseModel):
 class ReportRunCreate(BaseModel):
     company_id: int
     report_type: Literal["income_statement","balance_sheet","trial_balance","ar_ageing","ap_ageing","sales_performance","procurement_performance","inventory_summary","integration_health"]
-    parameters: dict = {}
+    parameters: dict = Field(default_factory=dict)
     generated_by: str = Field(default="system", min_length=1, max_length=120)
 
 
@@ -341,6 +344,7 @@ class RoleCreate(BaseModel):
 
 class UserRoleAssignment(BaseModel):
     role_id: int
+    approval_id: int = Field(ge=1)
 
 
 class RefreshRequest(BaseModel):

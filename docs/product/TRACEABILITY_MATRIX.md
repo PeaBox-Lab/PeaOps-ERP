@@ -1,3 +1,4 @@
+
 # Requirements and Traceability Matrix
 
 | Epic | Stories | Primary module/API | Pure rule tests | Role guides |
@@ -28,3 +29,4 @@ Pure-rule tests demonstrate deterministic business invariants. They do not repla
 | Open source | US-OSS-001–002 | license, community files, CI/release workflows | repository completeness checks | Developer, Maintainer |
 | Pilot access hardening | US-SEC-004–005 | sessions, route policy, logout/refresh | hardening/security tests | Security Admin, Developer |
 | Segregation/concurrency | US-SOD-001–002, US-CON-001 | approvals, role validation, version checks | hardening tests | Controller, Security Admin, Auditor |
+| Approval binding | US-SOD-003, US-SAL-007, US-INV-007, US-SEC-006 | journal post, credit override, inventory adjustment, role assignment | hardening tests | Finance, Sales, Inventory, Security Admin, Auditor |

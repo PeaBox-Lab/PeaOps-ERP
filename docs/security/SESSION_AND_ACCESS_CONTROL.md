@@ -1,3 +1,4 @@
+
 # Session and Access Control - v0.8.1
 
 Access tokens are short lived and carry user, company and permission claims. Login also issues a random refresh token; only its SHA-256 hash is stored. Logout revokes the refresh session. Refresh does not extend the refresh-session expiry.

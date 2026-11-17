@@ -1,3 +1,4 @@
+
 # Insight Module - v0.7
 
 Insight is the governed reporting layer over posted Finance and cumulative operational data.

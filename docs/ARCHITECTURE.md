@@ -1,3 +1,4 @@
+
 # Architecture - v0.8
 
 PeaOps is a modular monolith with bounded Finance, Sales, Procurement, Inventory, Integration, Insight and Security/Operations areas.

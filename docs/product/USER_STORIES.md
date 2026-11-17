@@ -1,3 +1,4 @@
+
 # PeaOps Cumulative User Stories - v0.7
 
 Each story uses: **As a [role], I want [capability], so that [outcome].** Acceptance criteria are product requirements and test/UAT inputs; they are not claims of production completeness.
@@ -295,3 +296,24 @@ As an approver, I want stale decisions rejected, so that concurrent reviewers do
 - Client supplies expected version.
 - Matching version increments.
 - Mismatch returns conflict.
+
+## v0.8.2 approval binding and quality
+### US-SOD-003 Bound journal approval
+As a controller, I want journal posting to require an approval bound to the exact journal, so that a generic approval cannot authorize another entry.
+- Approval company, entity, ID and action must match.
+- Only approved records are accepted.
+
+### US-SAL-007 Bound credit override
+As a credit manager, I want a credit-limit override to require an approved record for that sales order, so that exceptional exposure is maker-checker controlled.
+- Normal within-limit confirmation does not require exception approval.
+- Override requires reason and matching approved record.
+
+### US-INV-007 Bound inventory adjustment
+As an inventory controller, I want manual adjustments to require explicit approval, so that stock corrections are independently authorized.
+- Receipts/issues retain their normal workflow.
+- `adjustment_in` and `adjustment_out` require a matching approval.
+
+### US-SEC-006 Bound role assignment
+As a security administrator, I want user-role assignment to require an approved record for that user, so that access elevation is independently reviewed.
+- Approval action is `role_assignment`.
+- Cross-company approval cannot be reused.

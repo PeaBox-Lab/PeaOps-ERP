@@ -1,3 +1,4 @@
+
 from decimal import Decimal, ROUND_HALF_UP
 
 ZERO = Decimal('0')

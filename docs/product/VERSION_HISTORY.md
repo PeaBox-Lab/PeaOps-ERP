@@ -1,3 +1,4 @@
+
 # Cumulative Version History
 
 ## v0.1 Foundation
@@ -23,3 +24,7 @@ Statements, KPIs, operational analytics, saved reports, exports, data quality, I
 
 ## v0.8 Production Foundation
 Authentication/RBAC foundations, Alembic migrations, PostgreSQL server operations, health/backup/restore, production runbooks, Apache-2.0 open-source governance and GitHub automation.
+## v0.8.1 Pilot Hardening
+Central route authorization, revocable refresh sessions, maker-checker records, selected SoD conflicts and optimistic approval decisions.
+## v0.8.2 Approval Binding
+Binds journal posting, credit overrides, inventory adjustments and role assignments to exact approved records; fixes API runtime imports and mutable schema defaults.

@@ -1,3 +1,4 @@
+
 # PeaOps Roadmap
 
 | Release | Theme | Major outcomes | Status |
@@ -21,3 +22,6 @@
 6. Automate off-site backups and restore drills.
 7. Add metrics, tracing, alerts and log aggregation.
 8. Generate SBOM, provenance and signed artifacts.
+
+## v0.8.2 outcome
+Approval binding is now implemented for journal posting, credit overrides, inventory adjustments and role assignments. Next pilot-completion work focuses on PostgreSQL concurrency/load evidence, full API/browser E2E, rate limiting, automated recovery drills and observability before the v0.9 GA-hardening line.

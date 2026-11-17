@@ -1,3 +1,4 @@
+
 from urllib.parse import urlparse
 
 def validate_runtime(environment:str,database_url:str,secret_key:str,allowed_origins:str):
