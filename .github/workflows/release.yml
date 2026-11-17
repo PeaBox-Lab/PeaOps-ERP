@@ -6,7 +6,7 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: zip -r "PeaOps-${GITHUB_REF_NAME}.zip" . -x '.git/*' '*.env' '*__pycache__*' '*.pyc' 'node_modules/*'
       - run: sha256sum "PeaOps-${GITHUB_REF_NAME}.zip" > "PeaOps-${GITHUB_REF_NAME}.zip.sha256"
       - uses: softprops/action-gh-release@v2
