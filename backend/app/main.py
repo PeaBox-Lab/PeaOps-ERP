@@ -1,6 +1,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from app.core.db import Base, engine
 from app.core.config import settings
 from app.api.routes import router
@@ -44,6 +45,20 @@ async def count_requests(request, call_next):
 @app.get("/metrics")
 def metrics():
     return _metrics
+
+@app.get("/metrics/prometheus", response_class=PlainTextResponse)
+def metrics_prometheus():
+    return (
+        "# HELP peaops_requests_total Total HTTP requests served.\n"
+        "# TYPE peaops_requests_total counter\n"
+        f"peaops_requests_total {_metrics['requests']}\n"
+        "# HELP peaops_errors_total Total HTTP 5xx responses.\n"
+        "# TYPE peaops_errors_total counter\n"
+        f"peaops_errors_total {_metrics['errors']}\n"
+        "# HELP peaops_build_info PeaOps build information.\n"
+        "# TYPE peaops_build_info gauge\n"
+        'peaops_build_info{version="0.8.2"} 1\n'
+    )
 
 @app.get("/")
 def root():

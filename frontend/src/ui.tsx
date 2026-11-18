@@ -34,8 +34,8 @@ export const tone = (v: unknown) => {
 
 export const Pill = ({ v }: { v: unknown }) => <span className={`pill ${tone(v)}`}>{short(v)}</span>;
 
-export const Field = ({ label, value, onChange, placeholder, required, type }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; required?: boolean; type?: string }) => (
-  <label className="field"><span>{label}</span><input type={type ?? 'text'} required={required} value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)} /></label>
+export const Field = ({ label, value, onChange, placeholder, required, type, min, max, step }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; required?: boolean; type?: string; min?: number; max?: number; step?: string }) => (
+  <label className="field"><span>{label}</span><input type={type ?? 'text'} required={required} value={value} placeholder={placeholder} min={min} max={max} step={step} onChange={e => onChange(e.target.value)} /></label>
 );
 
 export const Select = ({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: Array<[string, string]> }) => (

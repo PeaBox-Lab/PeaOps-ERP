@@ -2,16 +2,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
-import { api, root, clearSession, loadSession, saveSession, money, type Session } from './api';
+import { api, clearSession, loadSession, saveSession, money, type Session } from './api';
 import { DataTable, ErrorNote, Field, Select, Toast, Pill } from './ui';
+import TypedForm, { type TypedFormKind } from './typedForms';
+import SpecForm, { type FormSpec } from './specForm';
+import { HorizontalBarChart, Donut, CHART_COLORS } from './charts';
 
 const CID = () => loadSession()?.companyId ?? 1;
 
 /* ---------- generic endpoint page ---------- */
-type Action = { label: string; path: (v: string) => string; body: string; method?: 'POST' | 'GET' };
+type Action = { label: string; path: (v: string) => string; body: string; method?: 'POST' | 'GET'; spec?: FormSpec };
 type PageCfg = {
   id: string; title: string; getPath?: string; query?: boolean; empty?: string;
   post?: { label: string; path: string; body: string };
+  form?: TypedFormKind;
+  spec?: FormSpec;
   actions?: Action[]; note?: string;
 };
 type ModuleCfg = { id: string; label: string; icon: string; pages: PageCfg[] };
@@ -53,72 +58,323 @@ function EntityPage({ page }: { page: PageCfg }) {
   return (<>
     <header><div><p className="eyebrow">MODULE / {page.title.toUpperCase()}</p><h1>{page.title}</h1>{page.note && <p>{page.note}</p>}</div>{page.getPath && <button className="ghost" onClick={() => void load()}>Refresh</button>}</header>
     {error && <ErrorNote e={error} />}{msg && <Toast msg={msg} />}
-    <div className="tabs">{page.getPath && <button className={tab === 'view' ? 'active' : ''} onClick={() => setTab('view')}>View</button>}{page.post && <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}>Create</button>}{page.actions && page.actions.length > 0 && <button className={tab === 'actions' ? 'active' : ''} onClick={() => setTab('actions')}>Action</button>}</div>
+    <div className="tabs">{page.getPath && <button className={tab === 'view' ? 'active' : ''} onClick={() => setTab('view')}>View</button>}{(page.post || page.form || page.spec) && <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}>Create</button>}{page.actions && page.actions.length > 0 && <button className={tab === 'actions' ? 'active' : ''} onClick={() => setTab('actions')}>Action</button>}</div>
 
     {tab === 'view' && page.getPath && <section className="panel"><DataTable rows={rows} loading={loading} empty={page.empty} /></section>}
-    {tab === 'create' && page.post && <section className="panel"><p className="eyebrow">POST {page.post.path}</p><h2>Create</h2><textarea className="jsonArea" rows={16} spellCheck={false} value={createBody} onChange={e => setCreateBody(e.target.value)} /><button className="primary" onClick={() => void runPost()}>Submit</button></section>}
-    {tab === 'actions' && page.actions && <section className="panel"><p className="eyebrow">ACTION</p><h2>{page.actions[actionIdx]?.label}</h2><div className="formInline"><Field label="Record ID" value={actionValue} onChange={setActionValue} /><Select label="Action" value={String(actionIdx)} onChange={v => { const i = Number(v); setActionIdx(i); setActionBody(page.actions![i].body); }} options={page.actions.map((a, i) => [String(i), a.label])} /></div><textarea className="jsonArea" rows={8} spellCheck={false} value={actionBody} onChange={e => setActionBody(e.target.value)} /><button className="primary" onClick={() => void runAction()}>Run</button></section>}
+    {tab === 'create' && (page.post || page.form || page.spec) && (page.form ? <TypedForm kind={page.form} onDone={m => { setMsg(m); void load(); }} /> : page.spec ? <SpecForm spec={page.spec} resolvePath={() => page.post!.path} onDone={m => { setMsg(m); void load(); }} /> : <section className="panel"><p className="eyebrow">POST {page.post!.path}</p><h2>Create</h2><textarea className="jsonArea" rows={16} spellCheck={false} value={createBody} onChange={e => setCreateBody(e.target.value)} /><button className="primary" onClick={() => void runPost()}>Submit</button></section>)}
+    {tab === 'actions' && page.actions && <section className="panel"><p className="eyebrow">ACTION</p><h2>{page.actions[actionIdx]?.label}</h2><div className="formInline">{!page.actions[actionIdx]?.spec && <Field label="Record ID" value={actionValue} onChange={setActionValue} />}<Select label="Action" value={String(actionIdx)} onChange={v => { const i = Number(v); setActionIdx(i); setActionBody(page.actions![i].body); }} options={page.actions.map((a, i) => [String(i), a.label])} /></div>{page.actions[actionIdx]?.spec ? <SpecForm spec={page.actions[actionIdx].spec!} resolvePath={id => page.actions![actionIdx].path(id)} recordId={true} onDone={m => { setMsg(m); void load(); }} /> : <><textarea className="jsonArea" rows={8} spellCheck={false} value={actionBody} onChange={e => setActionBody(e.target.value)} /><button className="primary" onClick={() => void runAction()}>Run</button></>}</section>}
   </>);
 }
 
 /* ---------- catalog ---------- */
-const QUOTE_LINE = { "item_id": 1, "description": "Consulting services", "quantity": 1, "unit_price": 1000, "discount_percent": 0, "tax_rate": 18 };
+const today = () => new Date().toISOString().slice(0, 10);
+
+const SALES_LINES = (label = 'Line items') => ({
+  key: 'lines', label, addLabel: 'Add line', minRows: 1,
+  columns: [
+    { key: 'item_id', label: 'Item ID', type: 'number' as const, def: '1' },
+    { key: 'description', label: 'Description', def: 'Consulting services' },
+    { key: 'quantity', label: 'Qty', type: 'number' as const, def: '1' },
+    { key: 'unit_price', label: 'Unit price', type: 'number' as const, def: '1000' },
+    { key: 'discount_percent', label: 'Disc %', type: 'number' as const, def: '0' },
+    { key: 'tax_rate', label: 'Tax %', type: 'number' as const, def: '18' },
+  ],
+});
+
+const PURCHASE_LINES = (label = 'Line items') => SALES_LINES(label);
+const ITEM_LINES = (label = 'Lines') => ({
+  key: 'lines', label, addLabel: 'Add line', minRows: 1,
+  columns: [
+    { key: 'item_id', label: 'Item ID', type: 'number' as const, def: '1' },
+    { key: 'description', label: 'Description', def: 'Bench power supply' },
+    { key: 'quantity', label: 'Qty', type: 'number' as const, def: '1' },
+    { key: 'estimated_unit_cost', label: 'Est. cost', type: 'number' as const, def: '15000' },
+  ],
+});
+
+const CUSTOMER_SRC = { path: `/parties?company_id=${CID()}&party_type=customer`, value: 'id', label: 'name' };
+const SUPPLIER_SRC = { path: `/parties?company_id=${CID()}&party_type=supplier`, value: 'id', label: 'name' };
+const PO_SRC = { path: `/purchase-orders?company_id=${CID()}`, value: 'id', label: 'number' };
+const BOM_SRC = { path: `/bill-of-materials?company_id=${CID()}`, value: 'id', label: 'id' };
+const ASSET_SRC = { path: `/maintenance-assets?company_id=${CID()}`, value: 'id', label: 'name' };
+const BANK_SRC = { path: `/bank-accounts?company_id=${CID()}`, value: 'id', label: 'name' };
+
 const M: ModuleCfg[] = [
   { id: 'finance', label: 'Finance', icon: '◉', pages: [
-    { id: 'accounts', title: 'Chart of accounts', getPath: '/accounts', post: { label: 'Create account', path: '/accounts', body: json({ company_id: CID(), code: '4001', name: 'Sales Revenue', account_type: 'revenue' }) }, empty: 'No accounts yet.' },
-    { id: 'invoices', title: 'Invoices', getPath: '/invoices?invoice_type=ar', post: { label: 'Create invoice', path: '/invoices', body: json({ company_id: CID(), party_id: 1, invoice_type: 'ar', invoice_date: '2026-11-17', due_date: '2026-12-17', currency: 'INR', lines: [{ description: 'Consulting services', quantity: 10, unit_price: 25000, tax_rate: 18 }] }) }, actions: [{ label: 'Post invoice', path: id => `/invoices/${id}/post`, body: '{}' }], empty: 'No AR invoices yet.', note: 'Creating an invoice reserves nothing; post it after review.' },
-    { id: 'ap-invoices', title: 'Vendor invoices', getPath: '/invoices?invoice_type=ap', post: { label: 'Create AP invoice', path: '/invoices', body: json({ company_id: CID(), party_id: 2, invoice_type: 'ap', invoice_date: '2026-11-17', due_date: '2026-12-17', lines: [{ description: 'Software licence', quantity: 1, unit_price: 50000, tax_rate: 18 }] }) }, actions: [{ label: 'Post invoice', path: id => `/invoices/${id}/post`, body: '{}' }], empty: 'No AP invoices yet.' },
-    { id: 'payments', title: 'Payments & allocations', post: { label: 'Record receipt / payment', path: '/payments', body: json({ company_id: CID(), party_id: 1, payment_type: 'receipt', reference: 'RCT-0001', payment_date: '2026-11-17', amount: 295000 }) }, actions: [{ label: 'Allocate payment to invoice', path: id => `/payments/${id}/allocate`, body: json({ invoice_id: 1, amount: 295000 }) }], note: 'Allocation links an open payment to an open invoice.' },
-    { id: 'journal', title: 'Journal entries', post: { label: 'Create journal', path: '/journal-entries', body: json({ company_id: CID(), reference: 'JV-0001', description: 'Accrual entry', lines: [{ account_id: 1, debit: 10000, credit: 0 }, { account_id: 2, credit: 10000 }] }) }, actions: [{ label: 'Post journal', path: id => `/journal-entries/${id}/post`, body: '{}' }], note: 'Journals must be balanced before posting.' },
+    { id: 'accounts', title: 'Chart of accounts', getPath: '/accounts', post: { label: 'Create account', path: '/accounts', body: '{}' }, spec: { title: 'New account', fields: [
+      { key: 'code', label: 'Code', required: true, def: '4001', placeholder: '4001' },
+      { key: 'name', label: 'Account name', required: true, def: 'Sales Revenue' },
+      { key: 'account_type', label: 'Type', type: 'select', def: 'asset', options: [['asset', 'Asset'], ['liability', 'Liability'], ['equity', 'Equity'], ['revenue', 'Revenue'], ['expense', 'Expense']] },
+    ] }, empty: 'No accounts yet.' },
+    { id: 'number-sequences', title: 'Number sequences', post: { label: 'Create sequence', path: '/number-sequences', body: '{}' }, spec: { title: 'New number sequence', fields: [
+      { key: 'document_type', label: 'Document type', type: 'select', def: 'ar_invoice', options: [['ar_invoice', 'AR invoice'], ['ap_invoice', 'AP invoice'], ['receipt', 'Receipt'], ['payment', 'Payment'], ['sales_quote', 'Sales quote'], ['sales_order', 'Sales order'], ['purchase_request', 'Purchase request'], ['rfq', 'RFQ'], ['purchase_order', 'Purchase order'], ['goods_receipt', 'Goods receipt'], ['stock_transfer', 'Stock transfer'], ['sales_delivery', 'Sales delivery']] },
+      { key: 'prefix', label: 'Prefix', def: 'INV' },
+      { key: 'next_number', label: 'Next number', type: 'number', def: '1', min: 1 },
+      { key: 'padding', label: 'Padding', type: 'number', def: '5', min: 1, max: 12 },
+    ] }, note: 'Required before documents can be numbered.' },
+    { id: 'invoices', title: 'Invoices', getPath: '/invoices?invoice_type=ar', form: 'ar-invoice', post: { label: 'Create invoice', path: '/invoices', body: '{}' }, actions: [{ label: 'Post invoice', path: id => `/invoices/${id}/post`, body: '{}' }], empty: 'No AR invoices yet.', note: 'Creating an invoice reserves nothing; post it after review.' },
+    { id: 'ap-invoices', title: 'Vendor invoices', getPath: '/invoices?invoice_type=ap', form: 'ap-invoice', post: { label: 'Create AP invoice', path: '/invoices', body: '{}' }, actions: [{ label: 'Post invoice', path: id => `/invoices/${id}/post`, body: '{}' }], empty: 'No AP invoices yet.' },
+    { id: 'payments', title: 'Payments & allocations', form: 'payment', post: { label: 'Record receipt / payment', path: '/payments', body: '{}' }, actions: [{ label: 'Allocate payment to invoice', path: id => `/payments/${id}/allocate`, body: '{}', spec: { title: 'Allocate payment', fields: [
+      { key: 'invoice_id', label: 'Invoice ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'amount', label: 'Amount', type: 'number', required: true, def: '295000', min: 0, step: 'any' },
+    ] } }], note: 'Allocation links an open payment to an open invoice.' },
+    { id: 'journal', title: 'Journal entries', form: 'journal', post: { label: 'Create journal', path: '/journal-entries', body: '{}' }, actions: [{ label: 'Post journal', path: id => `/journal-entries/${id}/post`, body: '{}' }], note: 'Journals must be balanced before posting.' },
     { id: 'trial-balance', title: 'Trial balance', getPath: '/trial-balance', empty: 'Nothing posted yet.' },
     { id: 'ageing', title: 'AR/AP ageing', getPath: '/ageing', note: 'Open items bucketed by due date.' },
-    { id: 'fiscal-periods', title: 'Fiscal periods', getPath: '/fiscal-periods', post: { label: 'Create period', path: '/fiscal-periods', body: json({ company_id: CID(), code: 'FY26-Q3', name: 'Oct-Dec 2026', start_date: '2026-10-01', end_date: '2026-12-31' }) } },
-    { id: 'price-lists', title: 'Price lists', getPath: '/price-lists', post: { label: 'Create price list', path: '/price-lists', body: json({ company_id: CID(), code: 'STD', name: 'Standard', currency: 'INR', valid_from: '2026-11-17', valid_until: '2027-03-31', lines: [{ item_id: 1, unit_price: 25000 }] }) } },
-    { id: 'bank-accounts', title: 'Bank accounts', getPath: '/bank-accounts', post: { label: 'Create bank account', path: '/bank-accounts', body: json({ company_id: CID(), code: 'HDFC-001', name: 'HDFC Current', currency: 'INR', gl_account_id: null }) } },
-    { id: 'bank-recon', title: 'Bank reconciliation', getPath: '/bank-reconciliations', post: { label: 'New reconciliation', path: '/bank-reconciliations', body: json({ company_id: CID(), bank_account_id: 1, statement_date: '2026-11-17', opening_balance: 500000, closing_balance: 795000, notes: 'November statement' }) } },
-    { id: 'fixed-assets', title: 'Fixed assets', getPath: '/fixed-assets', post: { label: 'Register asset', path: '/fixed-assets', body: json({ company_id: CID(), code: 'FA-0001', name: 'Laptop - Design team', purchase_date: '2026-11-17', cost: 85000, useful_life_months: 36, salvage_value: 5000, category: 'IT' }) }, actions: [{ label: 'Post monthly depreciation', path: id => `/fixed-assets/${id}/depreciate`, body: json({ months: 1 }) }] },
+    { id: 'fiscal-periods', title: 'Fiscal periods', getPath: '/fiscal-periods', post: { label: 'Create period', path: '/fiscal-periods', body: '{}' }, spec: { title: 'New fiscal period', fields: [
+      { key: 'code', label: 'Code', required: true, def: 'FY26-Q3' },
+      { key: 'name', label: 'Name', required: true, def: 'Oct–Dec 2026' },
+      { key: 'start_date', label: 'Start date', type: 'date', required: true, def: '2026-10-01' },
+      { key: 'end_date', label: 'End date', type: 'date', required: true, def: '2026-12-31' },
+    ] } },
+    { id: 'price-lists', title: 'Price lists', getPath: '/price-lists', post: { label: 'Create price list', path: '/price-lists', body: '{}' }, spec: { title: 'New price list', fields: [
+      { key: 'code', label: 'Code', required: true, def: 'STD' },
+      { key: 'name', label: 'Name', required: true, def: 'Standard' },
+      { key: 'currency', label: 'Currency', def: 'INR' },
+      { key: 'valid_from', label: 'Valid from', type: 'date', required: true, def: today() },
+      { key: 'valid_until', label: 'Valid until', type: 'date', required: true, def: '2027-03-31' },
+    ], lines: { key: 'lines', label: 'Items', addLabel: 'Add item', minRows: 1, columns: [
+      { key: 'item_id', label: 'Item ID', type: 'number', def: '1' },
+      { key: 'unit_price', label: 'Unit price', type: 'number', def: '25000' },
+    ] } } },
+    { id: 'bank-accounts', title: 'Bank accounts', getPath: '/bank-accounts', post: { label: 'Create bank account', path: '/bank-accounts', body: '{}' }, spec: { title: 'New bank account', fields: [
+      { key: 'code', label: 'Code', required: true, def: 'HDFC-001' },
+      { key: 'name', label: 'Account name', required: true, def: 'HDFC Current' },
+      { key: 'currency', label: 'Currency', def: 'INR' },
+      { key: 'gl_account_id', label: 'GL account ID (optional)', type: 'number', min: 1 },
+    ] } },
+    { id: 'bank-recon', title: 'Bank reconciliation', getPath: '/bank-reconciliations', post: { label: 'New reconciliation', path: '/bank-reconciliations', body: '{}' }, spec: { title: 'New reconciliation', fields: [
+      { key: 'bank_account_id', label: 'Bank account', type: 'select', required: true, optionsFrom: { ...BANK_SRC }, asNumber: true },
+      { key: 'statement_date', label: 'Statement date', type: 'date', required: true, def: today() },
+      { key: 'opening_balance', label: 'Opening balance', type: 'number', def: '500000', step: 'any' },
+      { key: 'closing_balance', label: 'Closing balance', type: 'number', def: '795000', step: 'any' },
+      { key: 'notes', label: 'Notes', def: 'November statement' },
+    ] } },
+    { id: 'fixed-assets', title: 'Fixed assets', getPath: '/fixed-assets', post: { label: 'Register asset', path: '/fixed-assets', body: '{}' }, spec: { title: 'Register fixed asset', fields: [
+      { key: 'code', label: 'Code', required: true, def: 'FA-0001' },
+      { key: 'name', label: 'Asset name', required: true, def: 'Laptop - Design team' },
+      { key: 'category', label: 'Category', def: 'IT' },
+      { key: 'purchase_date', label: 'Purchase date', type: 'date', required: true, def: today() },
+      { key: 'cost', label: 'Cost', type: 'number', required: true, def: '85000', step: 'any' },
+      { key: 'salvage_value', label: 'Salvage value', type: 'number', def: '5000', step: 'any' },
+      { key: 'useful_life_months', label: 'Useful life (months)', type: 'number', def: '36', min: 1 },
+    ] }, actions: [{ label: 'Post monthly depreciation', path: id => `/fixed-assets/${id}/depreciate`, body: '{}', spec: { title: 'Post depreciation', fields: [
+      { key: 'months', label: 'Months', type: 'number', required: true, def: '1', min: 1 },
+    ] } }] },
   ]},
   { id: 'sales', label: 'Sales', icon: '◍', pages: [
-    { id: 'parties', title: 'Customers & vendors', getPath: '/parties', post: { label: 'Create party', path: '/parties', body: json({ company_id: CID(), party_type: 'customer', code: 'CUST-002', name: 'New Customer Pvt Ltd', credit_limit: 100000 }) }, empty: 'No parties yet.' },
-    { id: 'quotes', title: 'Quotes', getPath: '/sales-quotes', post: { label: 'Create quote', path: '/sales-quotes', body: json({ company_id: CID(), customer_id: 1, quote_date: '2026-11-17', valid_until: '2026-12-31', currency: 'INR', lines: [QUOTE_LINE] }) }, actions: [{ label: 'Send quote', path: id => `/sales-quotes/${id}/send`, body: '{}' }] },
-    { id: 'orders', title: 'Sales orders', getPath: '/sales-orders', post: { label: 'Create order', path: '/sales-orders', body: json({ company_id: CID(), customer_id: 1, order_date: '2026-11-17', lines: [QUOTE_LINE] }) }, actions: [{ label: 'Confirm order', path: id => `/sales-orders/${id}/confirm`, body: '{}' }, { label: 'Convert quote → order', path: id => `/sales-quotes/${id}/convert`, body: json({ order_date: '2026-11-17' }) }, { label: 'Create invoice from order', path: id => `/sales-orders/${id}/invoice`, body: json({ invoice_date: '2026-11-17', due_date: '2026-12-17' }) }, { label: 'Deliver order', path: id => `/sales-orders/${id}/deliver`, body: json({ idempotency_key: 'deliver-0001', warehouse_id: 1, delivery_date: '2026-11-17', lines: [{ sales_order_line_id: 1, quantity: 1 }] }) }], note: 'Integrity: quote → order → delivery → invoice.' },
+    { id: 'parties', title: 'Customers & vendors', getPath: '/parties', form: 'party', post: { label: 'Create party', path: '/parties', body: '{}' }, empty: 'No parties yet.' },
+    { id: 'quotes', title: 'Quotes', getPath: '/sales-quotes', post: { label: 'Create quote', path: '/sales-quotes', body: '{}' }, spec: { title: 'New quotation', fields: [
+      { key: 'customer_id', label: 'Customer', type: 'select', required: true, asNumber: true, optionsFrom: { ...CUSTOMER_SRC } },
+      { key: 'quote_date', label: 'Quote date', type: 'date', required: true, def: today() },
+      { key: 'valid_until', label: 'Valid until', type: 'date', required: true, def: '2026-12-31' },
+      { key: 'currency', label: 'Currency', def: 'INR' },
+      { key: 'notes', label: 'Notes', def: 'Thanks for your business' },
+    ], lines: SALES_LINES('Quoted items') }, actions: [{ label: 'Send quote', path: id => `/sales-quotes/${id}/send`, body: '{}' }] },
+    { id: 'orders', title: 'Sales orders', getPath: '/sales-orders', post: { label: 'Create order', path: '/sales-orders', body: '{}' }, spec: { title: 'New sales order', fields: [
+      { key: 'customer_id', label: 'Customer', type: 'select', required: true, asNumber: true, optionsFrom: { ...CUSTOMER_SRC } },
+      { key: 'order_date', label: 'Order date', type: 'date', required: true, def: today() },
+      { key: 'promised_date', label: 'Promised date (optional)', type: 'date' },
+      { key: 'currency', label: 'Currency', def: 'INR' },
+    ], lines: SALES_LINES('Order items') }, actions: [
+      { label: 'Confirm order', path: id => `/sales-orders/${id}/confirm`, body: '{}' },
+      { label: 'Convert quote → order', path: id => `/sales-quotes/${id}/convert`, body: '{}', spec: { title: 'Convert quote to order', fields: [
+        { key: 'order_date', label: 'Order date', type: 'date', required: true, def: today() },
+        { key: 'promised_date', label: 'Promised date (optional)', type: 'date' },
+      ] } },
+      { label: 'Create invoice from order', path: id => `/sales-orders/${id}/invoice`, body: '{}', spec: { title: 'Create invoice', fields: [
+        { key: 'invoice_date', label: 'Invoice date', type: 'date', required: true, def: today() },
+        { key: 'due_date', label: 'Due date', type: 'date', required: true, def: '2026-12-17' },
+      ] } },
+      { label: 'Deliver order', path: id => `/sales-orders/${id}/deliver`, body: '{}', spec: { title: 'Deliver order', fields: [
+        { key: 'warehouse_id', label: 'Warehouse ID', type: 'number', required: true, def: '1', min: 1 },
+        { key: 'delivery_date', label: 'Delivery date', type: 'date', required: true, def: today() },
+        { key: 'idempotency_key', label: 'Idempotency key', def: '', placeholder: 'auto-generated' },
+      ], lines: { key: 'lines', label: 'Items to deliver', addLabel: 'Add line', minRows: 1, columns: [
+        { key: 'sales_order_line_id', label: 'Order line ID', type: 'number', def: '1' },
+        { key: 'quantity', label: 'Qty', type: 'number', def: '1' },
+      ] }, transform: payload => ({ idempotency_key: payload.idempotency_key && String(payload.idempotency_key).trim() ? payload.idempotency_key : crypto.randomUUID() }) } },
+    ], note: 'Integrity: quote → order → delivery → invoice.' },
   ]},
   { id: 'procurement', label: 'Procurement', icon: '◔', pages: [
-    { id: 'purchase-requests', title: 'Purchase requests', getPath: '/purchase-requests', post: { label: 'Create request', path: '/purchase-requests', body: json({ company_id: CID(), request_date: '2026-11-17', required_date: '2026-12-01', requester: 'admin', department: 'Engineering', lines: [{ item_id: 1, description: 'Bench power supply', quantity: 2, estimated_unit_cost: 15000 }] }) }, actions: [{ label: 'Submit request', path: id => `/purchase-requests/${id}/submit`, body: '{}' }] },
-    { id: 'rfqs', title: 'RFQs', getPath: '/rfqs', post: { label: 'Create RFQ', path: '/rfqs', body: json({ company_id: CID(), rfq_date: '2026-11-17', response_due: '2026-12-01', lines: [{ item_id: 1, description: 'Bench power supply', quantity: 2 }] }) }, actions: [{ label: 'Issue RFQ', path: id => `/rfqs/${id}/issue`, body: '{}' }, { label: 'Compare RFQ quotes', path: id => `/rfqs/${id}/comparison`, body: '{}', method: 'GET' }] },
-    { id: 'supplier-quotes', title: 'Supplier quotes', post: { label: 'Record supplier quote', path: '/supplier-quotes', body: json({ company_id: CID(), rfq_id: 1, supplier_id: 2, number: 'SQ-0001', quote_date: '2026-11-17', valid_until: '2026-12-15', lines: [{ item_id: 1, description: 'Bench power supply', quantity: 2, unit_price: 14000, discount_percent: 0, tax_rate: 18 }] }) }, actions: [{ label: 'Convert quote → purchase order', path: id => `/supplier-quotes/${id}/convert`, body: json({ order_date: '2026-11-17' }) }], note: 'Totals must be consistent or conversion is rejected.' },
-    { id: 'purchase-orders', title: 'Purchase orders', getPath: '/purchase-orders', post: { label: 'Create order', path: '/purchase-orders', body: json({ company_id: CID(), supplier_id: 2, order_date: '2026-11-17', lines: [{ item_id: 1, description: 'Bench power supply', quantity: 2, unit_price: 14000, discount_percent: 0, tax_rate: 18 }] }) }, actions: [{ label: 'Confirm order', path: id => `/purchase-orders/${id}/confirm`, body: '{}' }, { label: 'Receive goods', path: id => `/purchase-orders/${id}/receipts`, body: json({ receipt_date: '2026-11-17', number: 'GRN-0001', warehouse_id: 1, lines: [{ purchase_order_line_id: 1, quantity: 2 }] }) }, { label: 'Integrated supplier invoice', path: id => `/purchase-orders/${id}/integrated-supplier-invoice`, body: json({ idempotency_key: 'ap-invoice-0001', invoice_date: '2026-11-17', due_date: '2026-12-17', lines: [{ purchase_order_line_id: 1, invoiced_quantity: 2, unit_price: 14000, tax_rate: 18 }] }) }] },
-    { id: 'landed-costs', title: 'Landed costs', getPath: '/landed-costs', post: { label: 'Allocate landed cost', path: '/landed-costs', body: json({ company_id: CID(), purchase_order_id: 1, description: 'Freight, insurance, customs', freight: 8000, insurance: 1500, duty: 9000, other_charges: 500 }) } },
+    { id: 'purchase-requests', title: 'Purchase requests', getPath: '/purchase-requests', post: { label: 'Create request', path: '/purchase-requests', body: '{}' }, spec: { title: 'New purchase request', fields: [
+      { key: 'request_date', label: 'Request date', type: 'date', required: true, def: today() },
+      { key: 'required_date', label: 'Required date', type: 'date', required: true, def: '2026-12-01' },
+      { key: 'requester', label: 'Requester', required: true, def: 'admin' },
+      { key: 'department', label: 'Department', def: 'Engineering' },
+      { key: 'justification', label: 'Justification', def: 'Stock replenishment' },
+    ], lines: ITEM_LINES('Requested items') }, actions: [{ label: 'Submit request', path: id => `/purchase-requests/${id}/submit`, body: '{}' }] },
+    { id: 'rfqs', title: 'RFQs', getPath: '/rfqs', post: { label: 'Create RFQ', path: '/rfqs', body: '{}' }, spec: { title: 'New RFQ', fields: [
+      { key: 'purchase_request_id', label: 'Purchase request ID (optional)', type: 'number', min: 1 },
+      { key: 'rfq_date', label: 'RFQ date', type: 'date', required: true, def: today() },
+      { key: 'response_due', label: 'Response due', type: 'date', required: true, def: '2026-12-01' },
+      { key: 'currency', label: 'Currency', def: 'INR' },
+      { key: 'notes', label: 'Notes', def: '' },
+    ], lines: { key: 'lines', label: 'RFQ items', addLabel: 'Add item', minRows: 1, columns: [
+      { key: 'item_id', label: 'Item ID', type: 'number', def: '1' },
+      { key: 'description', label: 'Description', def: 'Bench power supply' },
+      { key: 'quantity', label: 'Qty', type: 'number', def: '1' },
+    ] } }, actions: [{ label: 'Issue RFQ', path: id => `/rfqs/${id}/issue`, body: '{}' }, { label: 'Compare RFQ quotes', path: id => `/rfqs/${id}/comparison`, body: '{}', method: 'GET' }] },
+    { id: 'supplier-quotes', title: 'Supplier quotes', post: { label: 'Record supplier quote', path: '/supplier-quotes', body: '{}' }, spec: { title: 'New supplier quote', fields: [
+      { key: 'rfq_id', label: 'RFQ ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'supplier_id', label: 'Supplier', type: 'select', required: true, asNumber: true, optionsFrom: { ...SUPPLIER_SRC } },
+      { key: 'number', label: 'Quote number', required: true, def: 'SQ-0001' },
+      { key: 'quote_date', label: 'Quote date', type: 'date', required: true, def: today() },
+      { key: 'valid_until', label: 'Valid until', type: 'date', required: true, def: '2026-12-15' },
+    ], lines: PURCHASE_LINES('Quoted lines') }, actions: [{ label: 'Convert quote → purchase order', path: id => `/supplier-quotes/${id}/convert`, body: '{}', spec: { title: 'Convert to purchase order', fields: [
+      { key: 'order_date', label: 'Order date', type: 'date', required: true, def: today() },
+      { key: 'promised_date', label: 'Promised date (optional)', type: 'date' },
+    ] } }], note: 'Totals must be consistent or conversion is rejected.' },
+    { id: 'purchase-orders', title: 'Purchase orders', getPath: '/purchase-orders', post: { label: 'Create order', path: '/purchase-orders', body: '{}' }, spec: { title: 'New purchase order', fields: [
+      { key: 'supplier_id', label: 'Supplier', type: 'select', required: true, asNumber: true, optionsFrom: { ...SUPPLIER_SRC } },
+      { key: 'order_date', label: 'Order date', type: 'date', required: true, def: today() },
+      { key: 'promised_date', label: 'Promised date (optional)', type: 'date' },
+      { key: 'currency', label: 'Currency', def: 'INR' },
+    ], lines: PURCHASE_LINES('Ordered items') }, actions: [
+      { label: 'Confirm order', path: id => `/purchase-orders/${id}/confirm`, body: '{}' },
+      { label: 'Receive goods', path: id => `/purchase-orders/${id}/receipts`, body: '{}', spec: { title: 'Receive goods', fields: [
+        { key: 'number', label: 'Receipt number', required: true, def: 'GRN-0001' },
+        { key: 'receipt_date', label: 'Receipt date', type: 'date', required: true, def: today() },
+        { key: 'warehouse_id', label: 'Warehouse ID', type: 'number', required: true, def: '1', min: 1 },
+        { key: 'notes', label: 'Notes', def: '' },
+      ], lines: { key: 'lines', label: 'Received items', addLabel: 'Add line', minRows: 1, columns: [
+        { key: 'purchase_order_line_id', label: 'PO line ID', type: 'number', def: '1' },
+        { key: 'quantity', label: 'Qty', type: 'number', def: '2' },
+      ] } } },
+      { label: 'Integrated supplier invoice', path: id => `/purchase-orders/${id}/integrated-supplier-invoice`, body: '{}', spec: { title: 'Integrated supplier invoice', fields: [
+        { key: 'invoice_date', label: 'Invoice date', type: 'date', required: true, def: today() },
+        { key: 'due_date', label: 'Due date', type: 'date', required: true, def: '2026-12-17' },
+        { key: 'idempotency_key', label: 'Idempotency key', def: '', placeholder: 'auto-generated' },
+        { key: 'quantity_tolerance', label: 'Qty tolerance', type: 'number', def: '0', min: 0, step: 'any' },
+        { key: 'price_tolerance_percent', label: 'Price tolerance %', type: 'number', def: '0', min: 0, step: 'any' },
+      ], lines: { key: 'lines', label: 'Invoiced lines', addLabel: 'Add line', minRows: 1, columns: [
+        { key: 'purchase_order_line_id', label: 'PO line ID', type: 'number', def: '1' },
+        { key: 'invoiced_quantity', label: 'Invoiced qty', type: 'number', def: '2' },
+        { key: 'unit_price', label: 'Unit price', type: 'number', def: '14000' },
+        { key: 'tax_rate', label: 'Tax %', type: 'number', def: '18' },
+      ] }, transform: payload => ({ idempotency_key: payload.idempotency_key && String(payload.idempotency_key).trim() ? payload.idempotency_key : crypto.randomUUID() }) } },
+    ] },
+    { id: 'landed-costs', title: 'Landed costs', getPath: '/landed-costs', post: { label: 'Allocate landed cost', path: '/landed-costs', body: '{}' }, spec: { title: 'Allocate landed cost', fields: [
+      { key: 'purchase_order_id', label: 'Purchase order', type: 'select', required: true, asNumber: true, optionsFrom: { ...PO_SRC } },
+      { key: 'description', label: 'Description', def: 'Freight, insurance, customs' },
+      { key: 'freight', label: 'Freight', type: 'number', def: '8000', step: 'any' },
+      { key: 'insurance', label: 'Insurance', type: 'number', def: '1500', step: 'any' },
+      { key: 'duty', label: 'Customs duty', type: 'number', def: '9000', step: 'any' },
+      { key: 'other_charges', label: 'Other charges', type: 'number', def: '500', step: 'any' },
+    ] } },
   ]},
   { id: 'inventory', label: 'Inventory', icon: '◐', pages: [
     { id: 'items', title: 'Items', getPath: '/inventory/balances', note: 'Set item master data via SQL or API. Balances shown here.' },
     { id: 'balances', title: 'Stock balances', getPath: '/inventory/balances', empty: 'No stock on hand.' },
     { id: 'ledger', title: 'Stock ledger', getPath: '/inventory/ledger', note: 'Full immutable movement history.' },
-    { id: 'movements', title: 'Stock movements', post: { label: 'Create movement', path: '/inventory/movements', body: json({ company_id: CID(), item_id: 1, warehouse_id: 1, movement_type: 'opening', movement_date: '2026-11-17', quantity: 100, unit_cost: 10000 }) } },
+    { id: 'movements', title: 'Stock movements', post: { label: 'Create movement', path: '/inventory/movements', body: '{}' }, spec: { title: 'New stock movement', fields: [
+      { key: 'item_id', label: 'Item ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'warehouse_id', label: 'Warehouse ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'movement_type', label: 'Movement type', type: 'select', def: 'opening', options: [['opening', 'Opening'], ['receipt', 'Receipt'], ['issue', 'Issue'], ['adjustment_in', 'Adjustment in'], ['adjustment_out', 'Adjustment out']] },
+      { key: 'movement_date', label: 'Date', type: 'date', required: true, def: today() },
+      { key: 'quantity', label: 'Quantity', type: 'number', required: true, def: '100', step: 'any' },
+      { key: 'unit_cost', label: 'Unit cost', type: 'number', def: '10000', step: 'any' },
+      { key: 'reference_type', label: 'Reference type', def: 'manual' },
+      { key: 'notes', label: 'Notes', def: '' },
+    ] } },
     { id: 'reorder', title: 'Reorder alerts', getPath: '/inventory/reorder-alerts', empty: 'All stocked well.' },
-    { id: 'transfers', title: 'Stock transfers', post: { label: 'Create transfer', path: '/stock-transfers', body: json({ company_id: CID(), transfer_date: '2026-11-17', source_warehouse_id: 1, destination_warehouse_id: 2, lines: [{ item_id: 1, quantity: 10 }] }) }, actions: [{ label: 'Post transfer', path: id => `/stock-transfers/${id}/post`, body: '{}' }] },
-    { id: 'reservations', title: 'Reservations', post: { label: 'Reserve stock', path: '/inventory/reservations', body: json({ company_id: CID(), item_id: 1, warehouse_id: 1, quantity: 5 }) } },
-    { id: 'policies', title: 'Reorder policies', post: { label: 'Create policy', path: '/inventory/policies', body: json({ company_id: CID(), item_id: 1, warehouse_id: 1, tracking_mode: 'lot', reorder_point: 10, reorder_quantity: 50 }) } },
+    { id: 'transfers', title: 'Stock transfers', post: { label: 'Create transfer', path: '/stock-transfers', body: '{}' }, spec: { title: 'New stock transfer', fields: [
+      { key: 'transfer_date', label: 'Date', type: 'date', required: true, def: today() },
+      { key: 'source_warehouse_id', label: 'From warehouse', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'destination_warehouse_id', label: 'To warehouse', type: 'number', required: true, def: '2', min: 1 },
+      { key: 'notes', label: 'Notes', def: 'Replenishment' },
+    ], lines: { key: 'lines', label: 'Items to transfer', addLabel: 'Add item', minRows: 1, columns: [
+      { key: 'item_id', label: 'Item ID', type: 'number', def: '1' },
+      { key: 'quantity', label: 'Qty', type: 'number', def: '10' },
+    ] } }, actions: [{ label: 'Post transfer', path: id => `/stock-transfers/${id}/post`, body: '{}' }] },
+    { id: 'reservations', title: 'Reservations', post: { label: 'Reserve stock', path: '/inventory/reservations', body: '{}' }, spec: { title: 'Reserve stock', fields: [
+      { key: 'item_id', label: 'Item ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'warehouse_id', label: 'Warehouse ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'quantity', label: 'Quantity', type: 'number', required: true, def: '5', step: 'any' },
+    ] } },
+    { id: 'policies', title: 'Reorder policies', post: { label: 'Create policy', path: '/inventory/policies', body: '{}' }, spec: { title: 'New reorder policy', fields: [
+      { key: 'item_id', label: 'Item ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'warehouse_id', label: 'Warehouse ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'tracking_mode', label: 'Tracking', type: 'select', def: 'lot', options: [['lot', 'Lot'], ['serial', 'Serial'], ['none', 'None']] },
+      { key: 'reorder_point', label: 'Reorder point', type: 'number', def: '10', step: 'any' },
+      { key: 'reorder_quantity', label: 'Reorder quantity', type: 'number', def: '50', step: 'any' },
+      { key: 'allow_negative', label: 'Allow negative stock', type: 'checkbox', def: 'false' },
+    ] } },
   ]},
   { id: 'crm', label: 'CRM', icon: '◓', pages: [
-    { id: 'leads', title: 'Leads', getPath: '/leads', post: { label: 'Create lead', path: '/leads', body: json({ company_id: CID(), name: 'Priya Sharma - Procurement Head', email: 'priya@example.com', phone: '+91 98765 43210', source: 'trade_show', owner: 'admin' }) }, empty: 'No leads yet.' },
-    { id: 'opportunities', title: 'Opportunities', getPath: '/opportunities', post: { label: 'Create opportunity', path: '/opportunities', body: json({ company_id: CID(), customer_id: 1, title: 'ACME - Annual support renewal', stage: 'proposal', amount: 1500000, probability: 60 }) }, empty: 'No opportunities yet.' },
+    { id: 'leads', title: 'Leads', getPath: '/leads', form: 'lead', post: { label: 'Create lead', path: '/leads', body: '{}' }, empty: 'No leads yet.' },
+    { id: 'opportunities', title: 'Opportunities', getPath: '/opportunities', form: 'opportunity', post: { label: 'Create opportunity', path: '/opportunities', body: '{}' }, empty: 'No opportunities yet.' },
   ]},
   { id: 'manufacturing', label: 'Manufacturing', icon: '◑', pages: [
-    { id: 'boms', title: 'Bills of material', getPath: '/bill-of-materials', post: { label: 'Create BOM', path: '/bill-of-materials', body: json({ company_id: CID(), item_id: 2, revision: 1, description: 'Bench PSU assembly v1.0' }) }, actions: [{ label: 'Add component line', path: id => `/bill-of-materials/${id}/lines`, body: json({ bom_id: 1, component_id: 1, quantity: 1 }) }], empty: 'No BOMs yet.' },
-    { id: 'work-orders', title: 'Work orders', getPath: '/work-orders', post: { label: 'Create work order', path: '/work-orders', body: json({ company_id: CID(), number: 'WO-0001', bom_id: 1, status: 'draft', planned_date: '2026-12-01', quantity: 10 }) }, empty: 'No work orders yet.' },
+    { id: 'boms', title: 'Bills of material', getPath: '/bill-of-materials', post: { label: 'Create BOM', path: '/bill-of-materials', body: '{}' }, spec: { title: 'New BOM', fields: [
+      { key: 'item_id', label: 'Finished item ID', type: 'number', required: true, def: '2', min: 1 },
+      { key: 'revision', label: 'Revision', type: 'number', def: '1', min: 1 },
+      { key: 'description', label: 'Description', def: 'Bench PSU assembly v1.0' },
+    ] }, actions: [{ label: 'Add component line', path: id => `/bill-of-materials/${id}/lines`, body: '{}', spec: { title: 'Add component', fields: [
+      { key: 'bom_id', label: 'BOM ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'component_id', label: 'Component item ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'quantity', label: 'Quantity', type: 'number', required: true, def: '1', step: 'any' },
+    ] } }], empty: 'No BOMs yet.' },
+    { id: 'work-orders', title: 'Work orders', getPath: '/work-orders', post: { label: 'Create work order', path: '/work-orders', body: '{}' }, spec: { title: 'New work order', fields: [
+      { key: 'number', label: 'Number', required: true, def: 'WO-0001' },
+      { key: 'bom_id', label: 'BOM', type: 'select', required: true, asNumber: true, optionsFrom: { ...BOM_SRC } },
+      { key: 'status', label: 'Status', type: 'select', def: 'draft', options: [['draft', 'Draft'], ['planned', 'Planned'], ['released', 'Released'], ['completed', 'Completed']] },
+      { key: 'planned_date', label: 'Planned date', type: 'date', required: true, def: '2026-12-01' },
+      { key: 'quantity', label: 'Quantity', type: 'number', def: '10', step: 'any' },
+    ] }, empty: 'No work orders yet.' },
   ]},
   { id: 'projects', label: 'Projects', icon: '◒', pages: [
-    { id: 'projects', title: 'Projects', getPath: '/projects', post: { label: 'Create project', path: '/projects', body: json({ company_id: CID(), code: 'PRJ-001', name: 'Plant automation rollout', start_date: '2026-11-17', status: 'planning', budget: 5000000 }) }, empty: 'No projects yet.' },
-    { id: 'tasks', title: 'Project tasks', getPath: '/projects', post: { label: 'Add task', path: '/projects/1/tasks', body: json({ project_id: 1, name: 'Requirements workshop', order: 1, assigned_to: 'admin', due_date: '2026-11-30', estimated_hours: 16 }) }, note: 'Adds a task to project #1. Change project id in the path & body.' },
+    { id: 'projects', title: 'Projects', getPath: '/projects', post: { label: 'Create project', path: '/projects', body: '{}' }, spec: { title: 'New project', fields: [
+      { key: 'code', label: 'Code', required: true, def: 'PRJ-001' },
+      { key: 'name', label: 'Name', required: true, def: 'Plant automation rollout' },
+      { key: 'description', label: 'Description', def: '' },
+      { key: 'start_date', label: 'Start date', type: 'date', required: true, def: today() },
+      { key: 'end_date', label: 'End date (optional)', type: 'date' },
+      { key: 'status', label: 'Status', type: 'select', def: 'planning', options: [['planning', 'Planning'], ['active', 'Active'], ['on_hold', 'On hold'], ['completed', 'Completed']] },
+      { key: 'budget', label: 'Budget', type: 'number', def: '5000000', step: 'any' },
+    ] }, empty: 'No projects yet.' },
+    { id: 'tasks', title: 'Project tasks', getPath: '/projects', post: { label: 'Add task to project #1', path: '/projects/1/tasks', body: '{}' }, spec: { title: 'Add task (project #1)', fields: [
+      { key: 'project_id', label: 'Project ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'name', label: 'Task', required: true, def: 'Requirements workshop' },
+      { key: 'description', label: 'Details', def: '' },
+      { key: 'order', label: 'Order', type: 'number', def: '1', min: 0 },
+      { key: 'assigned_to', label: 'Assigned to', def: 'admin' },
+      { key: 'due_date', label: 'Due date (optional)', type: 'date' },
+      { key: 'estimated_hours', label: 'Estimated hours', type: 'number', def: '16', step: 'any' },
+    ] }, note: 'Change project ID in the path & body for other projects.' },
   ]},
   { id: 'maintenance', label: 'Maintenance & Assets', icon: '◕', pages: [
-    { id: 'm-assets', title: 'Maintenance assets', getPath: '/maintenance-assets', post: { label: 'Register asset', path: '/maintenance-assets', body: json({ company_id: CID(), code: 'CNC-01', name: 'CNC Lathe #1', category: 'Shop floor', purchase_date: '2026-11-17', location: 'Plant A' }) }, empty: 'No assets yet.' },
-    { id: 'm-work-orders', title: 'Maintenance work orders', getPath: '/maintenance-work-orders', post: { label: 'Create work order', path: '/maintenance-work-orders', body: json({ company_id: CID(), number: 'MWO-0001', asset_id: 1, requested_by: 'admin', work_description: 'Monthly preventive service', priority: 'medium' }) }, empty: 'No work orders yet.' },
+    { id: 'm-assets', title: 'Maintenance assets', getPath: '/maintenance-assets', post: { label: 'Register asset', path: '/maintenance-assets', body: '{}' }, spec: { title: 'Register asset', fields: [
+      { key: 'code', label: 'Code', required: true, def: 'CNC-01' },
+      { key: 'name', label: 'Name', required: true, def: 'CNC Lathe #1' },
+      { key: 'category', label: 'Category', def: 'Shop floor' },
+      { key: 'purchase_date', label: 'Purchase date', type: 'date', required: true, def: today() },
+      { key: 'warranty_expiry', label: 'Warranty expiry (optional)', type: 'date' },
+      { key: 'location', label: 'Location', def: 'Plant A' },
+    ] }, empty: 'No assets yet.' },
+    { id: 'm-work-orders', title: 'Maintenance work orders', getPath: '/maintenance-work-orders', post: { label: 'Create work order', path: '/maintenance-work-orders', body: '{}' }, spec: { title: 'New maintenance work order', fields: [
+      { key: 'number', label: 'Number', required: true, def: 'MWO-0001' },
+      { key: 'asset_id', label: 'Asset', type: 'select', required: true, asNumber: true, optionsFrom: { ...ASSET_SRC } },
+      { key: 'requested_by', label: 'Requested by', def: 'admin' },
+      { key: 'work_description', label: 'Work description', def: 'Monthly preventive service' },
+      { key: 'priority', label: 'Priority', type: 'select', def: 'medium', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['critical', 'Critical']] },
+      { key: 'requested_date', label: 'Requested date', type: 'date', required: true, def: today() },
+    ] }, empty: 'No work orders yet.' },
   ]},
   { id: 'finance-ops', label: 'Consolidation & Treasury', icon: '◗', pages: [
-    { id: 'consolidation', title: 'Ledger consolidation', getPath: '/ledger-consolidations', post: { label: 'New consolidation run', path: '/ledger-consolidations', body: json({ company_id: CID(), period_start: '2026-10-01', period_end: '2026-10-31', notes: 'Q3 consolidation' }) }, empty: 'No consolidations yet.' },
-    { id: 'treasury', title: 'Treasury accounts', getPath: '/treasury-accounts', post: { label: 'Create treasury account', path: '/treasury-accounts', body: json({ company_id: CID(), code: 'HDFC-OPS', name: 'HDFC Operations', currency: 'INR', balance: 1250000, account_type: 'bank' }) }, empty: 'No treasury accounts yet.' },
+    { id: 'consolidation', title: 'Ledger consolidation', getPath: '/ledger-consolidations', post: { label: 'New consolidation run', path: '/ledger-consolidations', body: '{}' }, spec: { title: 'New consolidation run', fields: [
+      { key: 'period_start', label: 'Period start', type: 'date', required: true, def: '2026-10-01' },
+      { key: 'period_end', label: 'Period end', type: 'date', required: true, def: '2026-10-31' },
+      { key: 'notes', label: 'Notes', def: 'Q3 consolidation' },
+    ] }, empty: 'No consolidations yet.' },
+    { id: 'treasury', title: 'Treasury accounts', getPath: '/treasury-accounts', post: { label: 'Create treasury account', path: '/treasury-accounts', body: '{}' }, spec: { title: 'New treasury account', fields: [
+      { key: 'code', label: 'Code', required: true, def: 'HDFC-OPS' },
+      { key: 'name', label: 'Name', required: true, def: 'HDFC Operations' },
+      { key: 'currency', label: 'Currency', def: 'INR' },
+      { key: 'balance', label: 'Opening balance', type: 'number', def: '1250000', step: 'any' },
+      { key: 'account_type', label: 'Type', type: 'select', def: 'bank', options: [['bank', 'Bank'], ['cash', 'Cash'], ['investment', 'Investment'], ['fixed_deposit', 'Fixed deposit']] },
+      { key: 'bank_account_id', label: 'Linked bank account ID (optional)', type: 'number', min: 1 },
+    ] }, empty: 'No treasury accounts yet.' },
   ]},
   { id: 'reports', label: 'Reports', icon: '▤', pages: [
     { id: 'income-statement', title: 'Income statement', getPath: '/reports/income-statement' },
@@ -129,18 +385,59 @@ const M: ModuleCfg[] = [
     { id: 'inventory-summary', title: 'Inventory summary', getPath: '/reports/inventory-summary' },
     { id: 'integration-health', title: 'Integration health', getPath: '/reports/integration-health' },
     { id: 'data-quality', title: 'Data quality findings', getPath: '/reports/data-quality', empty: 'No findings — clean data.' },
-    { id: 'saved-reports', title: 'Saved reports', getPath: '/reports/saved', post: { label: 'Save a report', path: '/reports/saved', body: json({ company_id: CID(), name: 'Monthly board pack', report_type: 'income_statement', parameters: {}, owner: 'admin', shared: true }) }, actions: [{ label: 'Schedule report (cron)', path: id => `/saved-reports/${id}/schedule`, body: json({ schedule_cron: '0 9 1 * *' }) }] },
-    { id: 'run-report', title: 'Run a report', post: { label: 'Run report', path: '/reports/run', body: json({ company_id: CID(), report_type: 'trial_balance', parameters: {}, generated_by: 'admin' }) }, note: 'Returns the report payload directly.' },
+    { id: 'saved-reports', title: 'Saved reports', getPath: '/reports/saved', post: { label: 'Save a report', path: '/reports/saved', body: '{}' }, spec: { title: 'Save a report', fields: [
+      { key: 'name', label: 'Name', required: true, def: 'Monthly board pack' },
+      { key: 'report_type', label: 'Report type', type: 'select', required: true, def: 'income_statement', options: [['income_statement', 'Income statement'], ['balance_sheet', 'Balance sheet'], ['trial_balance', 'Trial balance'], ['ar_ageing', 'AR ageing'], ['ap_ageing', 'AP ageing'], ['sales_performance', 'Sales performance'], ['procurement_performance', 'Procurement performance'], ['inventory_summary', 'Inventory summary'], ['integration_health', 'Integration health']] },
+      { key: 'parameters_json', label: 'Parameters (JSON)', type: 'textarea', def: '{}' },
+      { key: 'owner', label: 'Owner', def: 'admin' },
+      { key: 'shared', label: 'Share with everyone', type: 'checkbox', def: 'true' },
+    ], transform: payload => ({ parameters: (() => { try { return JSON.parse(String(payload.parameters_json || '{}')); } catch { return {}; } })() }) }, actions: [{ label: 'Schedule report (cron)', path: id => `/saved-reports/${id}/schedule`, body: '{}', spec: { title: 'Schedule report', fields: [
+      { key: 'schedule_cron', label: 'Cron expression', required: true, def: '0 9 1 * *', placeholder: '0 9 1 * * (9am on the 1st)' },
+    ] } }] },
+    { id: 'run-report', title: 'Run a report', post: { label: 'Run report', path: '/reports/run', body: '{}' }, spec: { title: 'Run a report', fields: [
+      { key: 'report_type', label: 'Report type', type: 'select', required: true, def: 'trial_balance', options: [['trial_balance', 'Trial balance'], ['income_statement', 'Income statement'], ['balance_sheet', 'Balance sheet'], ['ar_ageing', 'AR ageing'], ['ap_ageing', 'AP ageing'], ['sales_performance', 'Sales performance'], ['procurement_performance', 'Procurement performance'], ['inventory_summary', 'Inventory summary'], ['integration_health', 'Integration health']] },
+      { key: 'parameters', label: 'Parameters (JSON)', type: 'textarea', def: '{}' },
+      { key: 'generated_by', label: 'Generated by', def: 'admin' },
+    ], transform: payload => ({ parameters: (() => { try { return JSON.parse(String(payload.parameters || '{}')); } catch { return {}; } })() }) }, note: 'Returns the report payload directly.' },
   ]},
   { id: 'admin', label: 'Administration', icon: '◘', pages: [
-    { id: 'users', title: 'Create user', post: { label: 'Create user', path: '/admin/users', body: json({ company_id: CID(), username: 'finance.manager', display_name: 'Finance Manager', password: 'ChangeMe-Strong-123!' }) }, note: 'Passwords must be ≥ 12 characters.' },
-    { id: 'roles', title: 'Create role', post: { label: 'Create role', path: '/admin/roles', body: json({ company_id: CID(), code: 'finance_manager', name: 'Finance Manager', permissions: ['reports:read', 'data:write'] }) } },
-    { id: 'approvals', title: 'Approvals', post: { label: 'Request approval', path: '/approvals', body: json({ company_id: CID(), entity_type: 'journal', entity_id: '1', action: 'journal_post', reason: 'Posting month-end accrual' }) }, actions: [{ label: 'Approve request', path: id => `/approvals/${id}/approve`, body: json({ expected_version: 1, reason: 'Approved after review' }) }], note: 'Maker-checker enforced: approver ≠ requester.' },
-    { id: 'mfa', title: 'MFA (TOTP)', getPath: '/auth/mfa/setup', actions: [{ label: 'Verify & enable MFA', path: () => '/auth/mfa/verify', body: json({ company_id: CID(), code: '000000' }) }], note: 'Copy the secret into your authenticator, then verify.' },
+    { id: 'users', title: 'Create user', post: { label: 'Create user', path: '/admin/users', body: '{}' }, spec: { title: 'New user', fields: [
+      { key: 'username', label: 'Username', required: true, def: 'finance.manager' },
+      { key: 'display_name', label: 'Display name', required: true, def: 'Finance Manager' },
+      { key: 'password', label: 'Password', required: true, def: 'ChangeMe-Strong-123!', placeholder: '12+ characters' },
+    ] }, note: 'Passwords must be ≥ 12 characters.' },
+    { id: 'roles', title: 'Create role', post: { label: 'Create role', path: '/admin/roles', body: '{}' }, spec: { title: 'New role', fields: [
+      { key: 'code', label: 'Code', required: true, def: 'finance_manager' },
+      { key: 'name', label: 'Role name', required: true, def: 'Finance Manager' },
+      { key: 'permissions', label: 'Permissions (comma separated)', type: 'textarea', required: true, def: 'reports:read,data:write' },
+    ], transform: payload => ({ permissions: String(payload.permissions || '').split(',').map(s => s.trim()).filter(Boolean) }) } },
+    { id: 'approvals', title: 'Approvals', post: { label: 'Request approval', path: '/approvals', body: '{}' }, spec: { title: 'New approval request', fields: [
+      { key: 'entity_type', label: 'Entity type', required: true, def: 'journal' },
+      { key: 'entity_id', label: 'Entity ID', required: true, def: '1' },
+      { key: 'action', label: 'Action', type: 'select', required: true, def: 'journal_post', options: [['journal_post', 'Journal post'], ['credit_override', 'Credit override'], ['inventory_adjustment', 'Inventory adjustment'], ['supplier_match_override', 'Supplier match override'], ['role_assignment', 'Role assignment']] },
+      { key: 'reason', label: 'Reason', required: true, def: 'Posting month-end accrual' },
+    ] }, actions: [{ label: 'Approve request', path: id => `/approvals/${id}/approve`, body: '{}', spec: { title: 'Approve request', fields: [
+      { key: 'expected_version', label: 'Expected version', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'reason', label: 'Reason', required: true, def: 'Approved after review' },
+    ] } }], note: 'Maker-checker enforced: approver ≠ requester.' },
+    { id: 'mfa', title: 'MFA (TOTP)', getPath: '/auth/mfa/setup', actions: [{ label: 'Verify & enable MFA', path: () => '/auth/mfa/verify', body: '{}', spec: { title: 'Verify MFA', fields: [
+      { key: 'company_id', label: 'Company ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'code', label: '6-digit code', required: true, def: '000000', placeholder: '123456' },
+    ] } }], note: 'Copy the secret into your authenticator, then verify.' },
   ]},
   { id: 'platform', label: 'Platform', icon: '▦', pages: [
-    { id: 'notifications', title: 'Notifications', getPath: '/notifications', post: { label: 'Create notification', path: '/notifications', body: json({ company_id: CID(), user_id: null, title: 'Welcome to PeaOps', body: 'Your pilot tenant is ready.' }) }, empty: 'No notifications.' },
-    { id: 'attachments', title: 'Attachments', getPath: '/attachments', post: { label: 'Register attachment', path: '/attachments', body: json({ company_id: CID(), entity_type: 'invoice', entity_id: '1', filename: 'PO-0001.pdf', file_path: '/var/lib/peaops/uploads/PO-0001.pdf', content_type: 'application/pdf' }) }, empty: 'No attachments.' },
+    { id: 'notifications', title: 'Notifications', getPath: '/notifications', post: { label: 'Create notification', path: '/notifications', body: '{}' }, spec: { title: 'New notification', fields: [
+      { key: 'user_id', label: 'User ID (optional)', type: 'number', min: 1 },
+      { key: 'title', label: 'Title', required: true, def: 'Welcome to PeaOps' },
+      { key: 'body', label: 'Message', def: 'Your pilot tenant is ready.' },
+    ] }, empty: 'No notifications.' },
+    { id: 'attachments', title: 'Attachments', getPath: '/attachments', post: { label: 'Register attachment', path: '/attachments', body: '{}' }, spec: { title: 'Register attachment', fields: [
+      { key: 'entity_type', label: 'Entity type', required: true, def: 'invoice' },
+      { key: 'entity_id', label: 'Entity ID', required: true, def: '1' },
+      { key: 'filename', label: 'Filename', required: true, def: 'PO-0001.pdf' },
+      { key: 'file_path', label: 'File path', required: true, def: '/var/lib/peaops/uploads/PO-0001.pdf' },
+      { key: 'content_type', label: 'Content type', def: 'application/pdf' },
+    ] }, empty: 'No attachments.' },
     { id: 'events', title: 'Integration events', getPath: '/integration/events', empty: 'No integration activity yet.' },
     { id: 'trace', title: 'Integration trace', getPath: '/integration/trace', empty: 'No trace entries.' },
   ]},
@@ -150,28 +447,40 @@ const MODULES = M;
 
 /* ---------- dashboard ---------- */
 function Dashboard({ session }: { session: Session }) {
-  const [kpi, setKpi] = useState<Record<string, unknown> | null>(null);
-  const [ready, setReady] = useState<Record<string, unknown> | null>(null);
+  const [kpi, setKpi] = useState<Record<string, string> | null>(null);
+  const [sales, setSales] = useState<Array<{ customer: string; invoice_count: number; sales: string; outstanding: string }> | null>(null);
+  const [ready, setReady] = useState<Record<string, string> | null>(null);
   const [errs, setErrs] = useState('');
   useEffect(() => {
     (async () => {
       try {
-        const [k, r] = await Promise.all([api<Record<string, unknown>>(`/reports/kpis?company_id=${CID()}`), api<Record<string, unknown>>('/health/ready', {}, false)]);
-        setKpi(k); setReady(r);
+        const [k, sp, r] = await Promise.all([api<Record<string, string>>(`/reports/kpis?company_id=${CID()}`), api<Array<{ customer: string; invoice_count: number; sales: string; outstanding: string }>>(`/reports/sales-performance?company_id=${CID()}`), api<Record<string, string>>('/health/ready', {}, false)]);
+        setKpi(k); setSales(sp); setReady(r);
       } catch (e) { setErrs(e instanceof Error ? e.message : 'Failed to load dashboard'); }
     })();
   }, []);
+  const n = (v?: string) => Number(v ?? 0);
   const tiles = [
     { label: 'API status', value: String(ready?.status ?? '…'), detail: ready ? String(ready.database ?? '') : '', tone: ready?.status === 'ready' ? 'ok' : 'warn' },
-    { label: 'Sales this month', value: money(kpi?.sales_this_month ?? 0), detail: 'AR total billed', tone: '' },
-    { label: 'Outstanding AR', value: money(kpi?.outstanding_ar ?? 0), detail: 'Open customer balances', tone: 'warn' },
-    { label: 'Inventory value', value: money(kpi?.inventory_value ?? 0), detail: 'At average cost', tone: 'violet' },
+    { label: 'Sales (all AR)', value: money(n(kpi?.sales)), detail: `Quote→order ${n(kpi?.quote_conversion_percent).toFixed(0)}% win rate`, tone: '' },
+    { label: 'Receivables', value: money(n(kpi?.receivables)), detail: `${n(kpi?.receivable_days).toFixed(0)} days outstanding`, tone: 'warn' },
+    { label: 'Inventory value', value: money(n(kpi?.inventory_value)), detail: `${n(kpi?.integration_success_percent).toFixed(0)}% integration success`, tone: 'violet' },
   ];
+  const wc = [
+    { label: 'Sales', value: n(kpi?.sales) }, { label: 'Purchases', value: n(kpi?.purchases) }, { label: 'Receivables', value: n(kpi?.receivables) }, { label: 'Payables', value: n(kpi?.payables) }, { label: 'Inventory', value: n(kpi?.inventory_value) },
+  ];
+  const topCustomers = (sales ?? []).slice(0, 6).map(s => ({ label: s.customer, value: n(s.sales) }));
+  const donutParts = (sales ?? []).slice(0, 5).map((s, i) => ({ label: s.customer, value: n(s.outstanding), color: CHART_COLORS[i % CHART_COLORS.length] }));
   return (<>
-    <header><div><p className="eyebrow">PEAOPS / COMMAND CENTER</p><h1>Good evening, {session.username}</h1><p>Everything here is wired to the local API.</p></div></header>
+    <header><div><p className="eyebrow">PEAOPS / COMMAND CENTER</p><h1>Good evening, {session.username}</h1><p>Live numbers from the local API.</p></div></header>
     {errs && <ErrorNote e={errs} />}
     <section className="heroGrid">{tiles.map(t => <div key={t.label} className={`metric ${t.tone}`}><span>{t.label}</span><strong>{t.value}</strong><small>{t.detail}</small></div>)}</section>
-    <section className="panel"><p className="eyebrow">QUICK LINKS</p><h2>What teams do first</h2><div className="quickLinks"><a href="#/finance/invoices">Create an invoice →</a><a href="#/procurement/purchase-orders">Raise a purchase order →</a><a href="#/reports/sales-performance">Sales performance →</a><a href="#/admin/approvals">Pending approvals →</a></div></section>
+    <div className="chartGrid">
+      <section className="panel chartCard"><p className="eyebrow">CAPITAL PROFILE</p><h2>Sales vs payables vs stock</h2><HorizontalBarChart data={wc} format={v => `₹ ${(v / 100000).toFixed(1)}L`} /></section>
+      <section className="panel chartCard"><p className="eyebrow">TOP CUSTOMERS</p><h2>Billed sales</h2><HorizontalBarChart data={topCustomers} format={v => `₹ ${(v / 100000).toFixed(1)}L`} /></section>
+      <section className="panel chartCard donutCard"><p className="eyebrow">OUTSTANDING AR</p><h2>Who owes the most</h2><div className="donutWrap"><Donut parts={donutParts} /><ul className="legend">{donutParts.map(p => <li key={p.label}><i style={{ background: p.color }} />{p.label} <b>{money(p.value)}</b></li>)}</ul></div></section>
+    </div>
+    <section className="panel"><p className="eyebrow">QUICK ACTIONS</p><h2>What teams do first</h2><div className="quickLinks"><a href="#/finance/invoices">Create an invoice →</a><a href="#/sales/quotes">Send a quote →</a><a href="#/procurement/purchase-orders">Raise a PO →</a><a href="#/reports/sales-performance">Sales performance →</a><a href="#/admin/approvals">Pending approvals →</a></div></section>
   </>);
 }
 

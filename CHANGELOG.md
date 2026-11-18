@@ -1,6 +1,23 @@
 
 # Changelog
 
+## Unreleased — VM-ready, guided UI, hosting playbook
+### Added
+- Guided, schema-driven forms for every create action in the web UI (typed fields, live totals, line-item editors, remote dropdowns) — invoice, payment, journal, party, lead, opportunity, plus all procurement, inventory, projects, manufacturing, maintenance, consolidation, treasury, reports, admin and platform endpoints.
+- Dashboard charts (capital profile, top customers, AR donut) and live KPI tiles.
+- Prometheus metrics endpoint (`/metrics/prometheus`) alongside JSON `/metrics`.
+- End-to-end API flow test (login → invoice → allocation) running in CI on an isolated database; test-session isolation via `tests/conftest.py`.
+- `deploy/install.sh` / `deploy/install.ps1`: one-command VM installers (Docker, .env generation, self-signed or real TLS certs, build, start, optional demo seed, preflight).
+- `deployment/server/scripts/seed_pilot_demo.py` and `gen_self_signed_cert.py` shared helpers.
+- Client-hosting guide `docs/operations/HOSTING_AND_CLIENT_ONBOARDING.md` (Linux & Windows VMs, tenancy models, TLS, backups, client onboarding).
+- Help-topics guide `docs/help/HELP_TOPICS.md` and a UI walkthrough section in `docs/USER_GUIDE.md`.
+- `.dockerignore` for backend/frontend builds.
+### Fixed
+- Web container health check failing behind IPv6 (`[::]:80/443` listens added) — proxy now starts.
+- Frontend build used absolute `http://localhost:8000` API URLs; now same-origin with dev/preview proxies.
+- Post-create lists now refresh automatically; guided forms preselect the first available option; invoice form no longer wipes line items on save.
+- Number sequence coverage for all document types in the pilot seed.
+
 ## 0.8.1 - 2026-11-16
 ### Added
 - Central deny-by-default route authorization policy.

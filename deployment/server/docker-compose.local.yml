@@ -1,0 +1,15 @@
+# Local pilot demo only — never deploy this to the public internet.
+# Usage: docker compose -f docker-compose.production.yml -f docker-compose.local.yml up -d demo
+services:
+  demo:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["127.0.0.1:8080:80"]
+    volumes:
+      - ./nginx/peaops.local.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    networks: [backend]

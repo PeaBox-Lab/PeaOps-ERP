@@ -1,5 +1,5 @@
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1';
-const ROOT = import.meta.env.VITE_API_ROOT ?? 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL ?? '/api/v1';
+const ROOT = import.meta.env.VITE_API_ROOT ?? '';
 
 export type Session = { token: string; refresh: string; companyId: number; username: string; permissions: string[] };
 const KEY = 'peaops.session.v1';

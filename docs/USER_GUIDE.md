@@ -1,6 +1,49 @@
 
 # PeaOps Complete User Guide - v0.8.2
 
+## Getting started (v0.8.2 web UI)
+
+### 1. Sign in
+Open the server URL in your browser (e.g. `https://your-host/` or `http://localhost:8080`).
+Sign in with your **Company ID**, **username** and **password**. If your account has MFA
+(TOTP) enabled, enter the 6-digit code from your authenticator app. Demo pilot credentials
+(see Pilot seeding) are company `1`, user `admin`, password `Admin@123456` — change these before real use.
+
+### 2. Navigate
+After sign-in you land on the **Overview** dashboard (live readiness, request counters, your permissions).
+Use the sidebar for modules: Overview, and each business module (Finance, Sales, Procurement, Inventory,
+CRM, Manufacturing, Projects, Maintenance & Assets, Consolidation & Treasury, Reports, Administration, Platform).
+
+### 3. View and create records
+Every module page has three tabs:
+
+- **View** — list of records for your company (live from the API). Table columns show all fields.
+- **Create** — a guided form for that document type. Dropdowns load customers, suppliers, bank accounts,
+  BOMs, assets, POs etc. from the system. Repeating line items (quotes, orders, requests) use the
+  on-line editor with add/remove rows.
+- **Action** — one-click or parameterised actions on a record, e.g. Post invoice, Send quote, Allocate payment,
+  Convert quote→order, Post monthly depreciation, Approve, Verify MFA.
+
+Most create actions in the Finance module also have live validation (e.g. journal entries must balance).
+
+### 4. Typical daily flows
+- **Sales:** create customer → create quote → send → convert quote to order → confirm order → deliver → invoice.
+- **Procurement:** create purchase request → submit → RFQ → compare quotes → PO → receive goods → integrated supplier invoice.
+- **Finance:** create invoice → post → receive payment → allocate payment to the invoice.
+- **Inventory:** set reorder policies → record movements → watch reorder alerts → transfer stock.
+- **Reports:** open Reports module → pick KPI / statement / performance → save the report → schedule it.
+
+### 5. Approvals and maker-checker
+High-risk actions (journal post, credit override, manual inventory adjustment, role assignment) need an approved
+maker-checker record. Create a request in **Administration → Approvals**, and a different user approves it.
+
+### 6. Exports
+Invoice CSV: `/api/v1/invoices/export.csv` · Invoice Excel: `/api/v1/invoices/export.xlsx` ·
+Trial balance CSV: `/api/v1/reports/export/trial-balance.csv`. Use the browser download URL with your session, or
+explore all endpoints in **API Explorer** (`/docs`).
+
+
+
 This is the navigation guide for everyone involved in selecting, implementing, administering, operating, supporting, auditing or using PeaOps.
 
 ## Choose your role
