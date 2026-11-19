@@ -2,8 +2,9 @@
 from datetime import date, datetime, timedelta
 import json
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body
+from fastapi.responses import StreamingResponse, RedirectResponse
 from sqlalchemy import select, func, String
 from sqlalchemy.orm import Session, selectinload
 from app.core.db import get_db
@@ -29,7 +30,8 @@ from app.domain.models import (
     BillOfMaterial, BillOfMaterialLine, WorkOrder,
     Project, ProjectTask,
     MaintenanceAsset, MaintenanceWorkOrder,
-    LedgerConsolidation, TreasuryAccount, LandedCost, Tenant, SmtpSetting
+    LedgerConsolidation, TreasuryAccount, LandedCost, Tenant, SmtpSetting,
+    Group, GroupCompany, GroupMember, SsoSetting
 )
 from .schemas import (
     CompanyCreate, AccountCreate, JournalCreate, PartyCreate, FiscalPeriodCreate,
@@ -40,11 +42,11 @@ from .schemas import (
     InventoryMovementCreate, StockTransferCreate, InventoryReservation, PostingProfileCreate,
     SalesDeliveryCreate, IntegratedSalesInvoiceCreate, SupplierInvoiceIntegratedCreate,
     SavedReportCreate, ReportRunCreate, UserCreate, LoginRequest, RoleCreate,
-    UserRoleAssignment, RefreshRequest, LogoutRequest, ApprovalCreate, ApprovalDecision, ChangePasswordRequest, SendInvoiceEmailRequest, SmtpSettingCreate,
+    UserRoleAssignment, RefreshRequest, LogoutRequest, ApprovalCreate, ApprovalDecision, ChangePasswordRequest, SendInvoiceEmailRequest, SmtpSettingCreate, ItemCreate, ItemUpdate, WarehouseCreate, WarehouseUpdate,
     BillOfMaterialCreate, BillOfMaterialLineCreate, WorkOrderCreate,
     ProjectCreate, ProjectTaskCreate,
     MaintenanceAssetCreate, MaintenanceWorkOrderCreate,
-    LedgerConsolidationCreate, TreasuryAccountCreate, LandedCostCreate, TenantCreate
+    LedgerConsolidationCreate, TreasuryAccountCreate, LandedCostCreate, TenantCreate, SsoSettingCreate
 )
 router = APIRouter(prefix="/api/v1")
 def audit(db: Session, action: str, entity_type: str, entity_id: int | str, details: str = ""):
@@ -153,6 +155,57 @@ def create_bank_account(data: BankAccountCreate, db: Session = Depends(get_db)):
 def list_bank_accounts(company_id: int, db: Session = Depends(get_db)):
     q = select(BankAccount).where(BankAccount.company_id == company_id).order_by(BankAccount.code)
     return [{"id": x.id, "code": x.code, "name": x.name, "currency": x.currency, "active": x.active} for x in db.scalars(q).all()]
+
+
+@router.get("/warehouses")
+def list_warehouses(company_id: int, db: Session = Depends(get_db)):
+    q = select(Warehouse).where(Warehouse.company_id == company_id).order_by(Warehouse.code)
+    return [{"id": x.id, "code": x.code, "name": x.name} for x in db.scalars(q).all()]
+
+
+@router.post("/warehouses")
+def create_warehouse(data: WarehouseCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id and 'admin:*' not in principal.get('permissions', []):
+        raise HTTPException(403, "Cross-company access denied")
+    existing = db.scalar(select(Warehouse).where(Warehouse.company_id == data.company_id, Warehouse.code == data.code))
+    if existing: raise HTTPException(409, f"Warehouse code {data.code} already exists")
+    obj = Warehouse(**data.model_dump())
+    db.add(obj); db.commit()
+    return {"id": obj.id, "code": obj.code, "name": obj.name}
+
+
+@router.get("/items")
+def list_items(company_id: int, q: str = "", db: Session = Depends(get_db)):
+    qry = select(Item).where(Item.company_id == company_id)
+    if q.strip():
+        pattern = f"%{q.strip().lower()}%"
+        qry = qry.where((func.lower(Item.sku).like(pattern)) | (func.lower(Item.name).like(pattern)))
+    qry = qry.order_by(Item.sku)
+    return [{"id": x.id, "sku": x.sku, "name": x.name, "unit": x.unit, "active": x.active} for x in db.scalars(qry).all()]
+
+
+@router.post("/items")
+def create_item(data: ItemCreate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    if int(principal['company_id']) != data.company_id and 'admin:*' not in principal.get('permissions', []):
+        raise HTTPException(403, "Cross-company access denied")
+    existing = db.scalar(select(Item).where(Item.company_id == data.company_id, Item.sku == data.sku))
+    if existing: raise HTTPException(409, f"Item SKU {data.sku} already exists")
+    obj = Item(**data.model_dump())
+    db.add(obj); db.commit()
+    return {"id": obj.id, "sku": obj.sku, "name": obj.name, "unit": obj.unit, "active": obj.active}
+
+
+@router.put("/items/{item_id}")
+def update_item(item_id: int, data: ItemUpdate, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    obj = db.get(Item, item_id)
+    if not obj: raise HTTPException(404, "Item not found")
+    if int(principal['company_id']) != obj.company_id and 'admin:*' not in principal.get('permissions', []):
+        raise HTTPException(403, "Cross-company access denied")
+    payload = data.model_dump(exclude_unset=True)
+    for k, v in payload.items():
+        setattr(obj, k, v)
+    db.commit(); db.refresh(obj)
+    return {"id": obj.id, "sku": obj.sku, "name": obj.name, "unit": obj.unit, "active": obj.active}
 def next_number(db: Session, company_id: int, document_type: str) -> str:
     seq = db.scalar(select(NumberSequence).where(NumberSequence.company_id == company_id, NumberSequence.document_type == document_type))
     if not seq: raise HTTPException(409, f"Number sequence not configured for {document_type}")
@@ -1186,11 +1239,186 @@ def refresh_access(data:RefreshRequest,db:Session=Depends(get_db)):
     return {"access_token":token,"token_type":"bearer","expires_in":settings.access_token_minutes*60,"permissions":permissions}
 
 
+def _user_accessible_companies(db: Session, user: User):
+    home_company_id = user.company_id
+    member_groups = [gm.group_id for gm in db.scalars(select(GroupMember).where(GroupMember.user_id == user.id)).all()]
+    if not member_groups:
+        return [db.get(Company, home_company_id)]
+    company_ids = db.scalars(select(GroupCompany.company_id).where(GroupCompany.group_id.in_(member_groups))).all()
+    accessible = []
+    seen = set()
+    for cid in [home_company_id, *company_ids]:
+        if cid in seen: continue
+        seen.add(cid)
+        c = db.get(Company, cid)
+        if c and c.active:
+            matched_user = db.scalar(select(User).where(User.company_id == cid, User.username == user.username, User.active == True))
+            if matched_user:
+                accessible.append(c)
+    return accessible
+
+@router.get("/me/companies")
+def me_companies(request: Request, db: Session = Depends(get_db)):
+    authz = request.headers.get('authorization', '')
+    token = authz[7:] if authz.startswith('Bearer ') else None
+    if not token: raise HTTPException(401, 'Authentication required')
+    try:
+        payload = decode_access_token(token, settings.secret_key)
+    except ValueError as exc:
+        raise HTTPException(401, str(exc))
+    me = db.get(User, int(payload["sub"])) if str(payload["sub"]).isdigit() else None
+    if not me or not me.active: raise HTTPException(401, 'User unavailable')
+    return [{'id': c.id, 'code': c.code, 'name': c.name, 'base_currency': c.base_currency} for c in _user_accessible_companies(db, me)]
+
+class ProvisionCompanyRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=20)
+    name: str = Field(min_length=2, max_length=160)
+    base_currency: str = Field(default="INR", min_length=3, max_length=3)
+    admin_username: str = Field(default="admin", max_length=120)
+    admin_display_name: str = Field(default="Company Administrator", max_length=160)
+
+@router.post("/admin/companies/provision")
+def provision_company(data: ProvisionCompanyRequest, db: Session = Depends(get_db), principal=Depends(require_permission("super_admin:*"))):
+    from app.security.rules import hash_password
+    import secrets
+    code = data.code.strip().upper()
+    if db.scalar(select(Company).where(Company.code == code)):
+        raise HTTPException(409, "Company code already exists")
+    c = Company(code=code, name=data.name.strip(), base_currency=data.base_currency.upper())
+    db.add(c); db.flush()
+    # Chart of accounts
+    account_ids = {}
+    ACCOUNTS = [("1000","Cash & Bank","asset"),("1100","Accounts Receivable","asset"),("1200","Inventory","asset"),("1500","Fixed Assets","asset"),("2000","Accounts Payable","liability"),("2100","Taxes Payable","liability"),("3000","Owner's Equity","equity"),("4000","Sales Revenue","revenue"),("5000","Cost of Goods Sold","expense"),("6000","Operating Expenses","expense"),("7000","Depreciation","expense"),("8000","Interest & Finance Costs","expense")]
+    for code2, name_, atype in ACCOUNTS:
+        a = Account(company_id=c.id, code=code2, name=name_, account_type=atype)
+        db.add(a); db.flush(); account_ids[code2] = a.id
+    # Posting profiles
+    db.add(PostingProfile(company_id=c.id, profile_type="sales", receivable_account_id=account_ids["1100"], revenue_account_id=account_ids["4000"], inventory_account_id=account_ids["1200"], cogs_account_id=account_ids["5000"]))
+    db.add(PostingProfile(company_id=c.id, profile_type="procurement", payable_account_id=account_ids["2000"], inventory_account_id=account_ids["1200"], expense_account_id=account_ids["6000"]))
+    # Fiscal periods: close previous month, current open, next open
+    today = date.today()
+    def _add_months(d: date, months: int) -> date:
+        m = d.month + months
+        y = d.year + (m - 1) // 12
+        m = ((m - 1) % 12) + 1
+        return d.replace(year=y, month=m, day=1)
+    def _end_of_month(d: date) -> date:
+        nxt = _add_months(d, 1)
+        return nxt - timedelta(days=1)
+    for delta in (-1, 0, 1):
+        first = _add_months(date(today.year, today.month, 1), delta)
+        code_ = f"FY{first.strftime('%y-%m')}"
+        status = "closed" if delta == -1 else "open"
+        db.add(FiscalPeriod(company_id=c.id, code=code_, name=first.strftime("%b %Y"), start_date=first, end_date=_end_of_month(first), status=status))
+    # Warehouse
+    db.add(Warehouse(company_id=c.id, code="MAIN", name="Main warehouse"))
+    # Number sequences
+    for doc, prefix in [("ar_invoice","INV"),("ap_invoice","PINV"),("sales_quote","SQ"),("sales_order","SO"),("purchase_request","PR"),("rfq","RFQ"),("supplier_quote","SUP"),("purchase_order","PO"),("goods_receipt","GRN"),("stock_transfer","ST"),("receipt","RCT"),("payment","PMT"),("sales_delivery","DN")]:
+        db.add(NumberSequence(company_id=c.id, document_type=doc, prefix=prefix, next_number=1, padding=5))
+    # Admin role + admin user
+    role = Role(company_id=c.id, code="company_admin", name="Company Administrator", system_role=True)
+    db.add(role); db.flush()
+    db.add(RolePermission(role_id=role.id, permission="admin:*"))
+    password = secrets.token_urlsafe(10) + "!Aa9"
+    user = User(company_id=c.id, username=data.admin_username or "admin", display_name=data.admin_display_name, password_hash=hash_password(password), must_change_password=True)
+    db.add(user); db.flush()
+    db.add(UserRole(user_id=user.id, role_id=role.id))
+    audit(db, "provision", "company", c.id, code)
+    db.commit()
+    return {"id": c.id, "code": c.code, "name": c.name, "base_currency": c.base_currency, "admin_user_id": user.id, "admin_username": user.username, "admin_password": password, "admin_must_change": True}
+
+class SwitchCompanyRequest(BaseModel):
+    company_id: int
+
+@router.post("/auth/switch-company")
+def switch_company(data: SwitchCompanyRequest, request: Request, db: Session = Depends(get_db)):
+    authz = request.headers.get('authorization', '')
+    token = authz[7:] if authz.startswith('Bearer ') else None
+    if not token: raise HTTPException(401, 'Authentication required')
+    try:
+        payload = decode_access_token(token, settings.secret_key)
+    except ValueError as exc:
+        raise HTTPException(401, str(exc))
+    current_user = db.get(User, int(payload["sub"])) if str(payload["sub"]).isdigit() else None
+    if not current_user or not current_user.active: raise HTTPException(401, 'User unavailable')
+    target = db.get(Company, data.company_id)
+    if not target or not target.active: raise HTTPException(404, 'Company not found or inactive')
+    accessible_ids = {c.id for c in _user_accessible_companies(db, current_user)}
+    if target.id not in accessible_ids: raise HTTPException(403, 'You do not have access to that company')
+    target_user = db.scalar(select(User).where(User.company_id == target.id, User.username == current_user.username, User.active == True))
+    if not target_user: raise HTTPException(403, 'No matching account in target company')
+    permissions = permissions_for_user(db, target_user.id)
+    token_out = create_access_token(str(target_user.id), target.id, permissions, settings.secret_key, settings.access_token_minutes * 60)
+    refresh = create_refresh_token(); refresh_payload = decode_access_token(token_out, settings.secret_key)
+    db.add(AuthSession(user_id=target_user.id, token_id=refresh_payload["jti"], refresh_token_hash=hash_refresh_token(refresh), expires_at=datetime.utcnow() + timedelta(days=7))); db.commit()
+    return {"access_token": token_out, "refresh_token": refresh, "token_type": "bearer", "expires_in": settings.access_token_minutes * 60, "permissions": permissions, "company_id": target.id, "company_name": target.name, "must_change_password": target_user.must_change_password}
+
 @router.post("/auth/logout")
-def logout(data:LogoutRequest,db:Session=Depends(get_db)):
-    session=db.scalar(select(AuthSession).where(AuthSession.refresh_token_hash==hash_refresh_token(data.refresh_token)))
-    if session and not session.revoked_at:session.revoked_at=datetime.utcnow();db.commit()
-    return {"revoked":bool(session)}
+def logout(data: LogoutRequest, db: Session = Depends(get_db)):
+    session = db.scalar(select(AuthSession).where(AuthSession.refresh_token_hash == hash_refresh_token(data.refresh_token)))
+    if session and not session.revoked_at:
+        session.revoked_at = datetime.utcnow(); db.commit()
+    return {"revoked": bool(session)}
+
+@router.get("/dsr/export")
+def dsr_export(company_id: int, username: str, db: Session = Depends(get_db), principal=Depends(require_permission("super_admin:*"))):
+    user = db.scalar(select(User).where(User.company_id == company_id, User.username == username))
+    if not user: raise HTTPException(404, "User not found")
+    invoices = db.scalars(select(Invoice).where(Invoice.company_id == company_id)).all()
+    sales_orders = db.scalars(select(SalesOrder).where(SalesOrder.company_id == company_id)).all()
+    return {
+        "user": {"id": user.id, "username": user.username, "display_name": user.display_name, "company_id": user.company_id, "active": user.active, "last_login_at": user.last_login_at},
+        "invoices": [{"id": i.id, "number": i.number, "total_amount": str(i.total_amount), "status": i.status} for i in invoices[:50]],
+        "sales_orders": [{"id": o.id, "number": o.number, "status": o.status} for o in sales_orders[:50]],
+    }
+
+@router.post("/dsr/delete")
+def dsr_delete(company_id: int, username: str, db: Session = Depends(get_db), principal=Depends(require_permission("super_admin:*"))):
+    user = db.scalar(select(User).where(User.company_id == company_id, User.username == username))
+    if not user: raise HTTPException(404, "User not found")
+    if user.username == "admin": raise HTTPException(409, "Cannot dsr-delete the system admin")
+    user.active = False
+    user.locked_until = datetime.utcnow() + timedelta(days=36500)
+    db.add(SecurityEvent(company_id=company_id, event_type="dsr_delete", username=username, outcome="success", details="user disabled and locked"))
+    db.commit()
+    return {"deleted": True, "username": username}
+
+@router.post("/admin/bulk-import")
+def bulk_import(company_id: int, entity: str, csv_text: str = Body(...), db: Session = Depends(get_db), principal=Depends(require_permission("super_admin:*"))):
+    import csv
+    reader = list(csv.DictReader(csv_text.strip().splitlines()))
+    if not reader: raise HTTPException(400, "No rows to import")
+    imported = []
+    skipped = []
+    for r in reader:
+        try:
+            if entity == "items":
+                sku = (r.get("sku") or "").strip().upper()
+                name = (r.get("name") or "").strip()
+                unit = (r.get("unit") or "EA").strip().upper()
+                if not sku or not name: skipped.append({"row": r, "reason": "sku and name required"}); continue
+                if db.scalar(select(Item).where(Item.company_id == company_id, Item.sku == sku)):
+                    skipped.append({"row": r, "reason": "duplicate sku"}); continue
+                obj = Item(company_id=company_id, sku=sku, name=name, unit=unit)
+                db.add(obj); db.flush()
+                imported.append({"id": obj.id, "sku": obj.sku, "name": obj.name})
+            elif entity == "parties":
+                ptype = (r.get("party_type") or "customer").strip().lower()
+                code = (r.get("code") or "").strip().upper()
+                name = (r.get("name") or "").strip()
+                credit_limit = Decimal((r.get("credit_limit") or "0").strip())
+                if not code or not name or ptype not in {"customer","supplier"}: skipped.append({"row": r, "reason": "party_type must be customer|supplier, code and name required"}); continue
+                if db.scalar(select(Party).where(Party.company_id == company_id, Party.code == code)):
+                    skipped.append({"row": r, "reason": "duplicate code"}); continue
+                obj = Party(company_id=company_id, party_type=ptype, code=code, name=name, credit_limit=credit_limit)
+                db.add(obj); db.flush()
+                imported.append({"id": obj.id, "code": obj.code, "name": obj.name})
+            else:
+                raise HTTPException(400, "Only items and parties supported")
+        except Exception as exc:
+            skipped.append({"row": r, "reason": str(exc)})
+    db.commit()
+    return {"entity": entity, "imported": imported, "skipped": skipped, "total_rows": len(reader)}
 
 @router.get("/admin/smtp-settings")
 def get_smtp_settings(db: Session = Depends(get_db), principal=Depends(require_permission("admin:smtp"))):
@@ -1203,7 +1431,6 @@ def update_smtp_settings(data: SmtpSettingCreate, db: Session = Depends(get_db),
     obj = db.scalar(select(SmtpSetting))
     payload = data.model_dump()
     if obj and not payload.get("password"):
-        # keep existing password when caller sends a blank password
         payload.pop("password", None)
     if not obj:
         obj = SmtpSetting(**payload)
@@ -1214,11 +1441,59 @@ def update_smtp_settings(data: SmtpSettingCreate, db: Session = Depends(get_db),
     db.commit(); db.refresh(obj)
     return {"configured": True, "host": obj.host, "port": obj.port, "username": obj.username, "from_address": obj.from_address, "use_tls": obj.use_tls, "active": obj.active}
 
-@router.get("/search")
-def search_endpoint(company_id: int, q: str = "", limit: int = 20, db: Session = Depends(get_db)):
-    from app.services.search import global_search
-    return global_search(db, company_id, q, limit)
+@router.get("/admin/sso-settings")
+def get_sso_settings(db: Session = Depends(get_db), principal=Depends(require_permission("admin:smtp"))):
+    obj = db.scalar(select(SsoSetting))
+    if not obj: return {"configured": False}
+    return {"configured": True, "issuer": obj.issuer, "client_id": obj.client_id, "redirect_uri": obj.redirect_uri, "scopes": obj.scopes, "company_id": obj.company_id, "active": obj.active, "updated_at": obj.updated_at}
 
+@router.put("/admin/sso-settings")
+def update_sso_settings(data: SsoSettingCreate, db: Session = Depends(get_db), principal=Depends(require_permission("admin:smtp"))):
+    obj = db.scalar(select(SsoSetting))
+    payload = data.model_dump()
+    if obj and not payload.get("client_secret"):
+        payload.pop("client_secret", None)
+    if not obj:
+        obj = SsoSetting(**payload)
+        db.add(obj)
+    else:
+        for k, v in payload.items():
+            setattr(obj, k, v)
+    db.commit(); db.refresh(obj)
+    return {"configured": True, "issuer": obj.issuer, "client_id": obj.client_id, "redirect_uri": obj.redirect_uri, "scopes": obj.scopes, "company_id": obj.company_id, "active": obj.active}
+
+@router.get("/auth/sso/login")
+def sso_login(db: Session = Depends(get_db)):
+    obj = db.scalar(select(SsoSetting))
+    if not obj or not obj.active or not obj.issuer:
+        raise HTTPException(404, "SSO not configured")
+    import secrets
+    state = secrets.token_urlsafe(32)
+    from app.services.oidc import auth_url
+    return RedirectResponse(url=auth_url(obj.issuer, obj.client_id, obj.redirect_uri, obj.scopes, state))
+
+@router.get("/auth/sso/callback")
+def sso_callback(code: str, state: str | None = None, db: Session = Depends(get_db)):
+    obj = db.scalar(select(SsoSetting))
+    if not obj or not obj.active or not obj.issuer:
+        raise HTTPException(404, "SSO not configured")
+    from app.services.oidc import exchange_code, userinfo
+    tokens = exchange_code(obj.issuer, obj.client_id, obj.client_secret, obj.redirect_uri, code)
+    info = userinfo(obj.issuer, tokens["access_token"])
+    email = (info.get("email") or info.get("preferred_username") or "").strip().lower()
+    if not email:
+        raise HTTPException(403, "SSO userinfo missing email claim")
+    local_part = email.split("@")[0]
+    user = db.scalar(select(User).where(User.username == local_part))
+    if not user:
+        raise HTTPException(403, f"No local user account for SSO identity {email}")
+    permissions = permissions_for_user(db, user.id)
+    access = create_access_token(str(user.id), user.company_id, permissions, settings.secret_key, settings.access_token_minutes * 60)
+    refresh = create_refresh_token()
+    payload = decode_access_token(access, settings.secret_key)
+    db.add(AuthSession(user_id=user.id, token_id=payload["jti"], refresh_token_hash=hash_refresh_token(refresh), expires_at=datetime.utcnow() + timedelta(days=7)))
+    db.commit()
+    return {"access_token": access, "refresh_token": refresh, "token_type": "bearer", "expires_in": settings.access_token_minutes * 60, "permissions": permissions, "must_change_password": user.must_change_password}
 
 @router.post("/auth/change-password")
 def change_password(data:ChangePasswordRequest,db:Session=Depends(get_db)):
@@ -1232,6 +1507,11 @@ def change_password(data:ChangePasswordRequest,db:Session=Depends(get_db)):
     user.password_hash=hash_password(data.new_password);user.must_change_password=False;user.failed_login_count=0;user.locked_until=None;db.commit();db.refresh(user)
     db.add(SecurityEvent(company_id=user.company_id,event_type="password_change",username=user.username,outcome="success"));db.commit()
     return {"changed":True,"must_change_password":False}
+
+@router.get("/search")
+def search_endpoint(company_id: int, q: str = "", limit: int = 20, db: Session = Depends(get_db)):
+    from app.services.search import global_search
+    return global_search(db, company_id, q, limit)
 
 
 @router.post("/approvals")
@@ -1540,6 +1820,37 @@ def send_invoice_email(invoice_id: int, data: SendInvoiceEmailRequest, db: Sessi
 
     db.add(AuditEvent(action="email_invoice", entity_type="invoice", entity_id=str(inv.id), details=f"to={to}")); db.commit()
     return {"sent": True, "to": to, "subject": subj}
+@router.post("/invoices/{invoice_id}/gst-einvoice")
+def gst_einvoice(invoice_id: int, db: Session = Depends(get_db)):
+    inv = db.scalar(select(Invoice).options(selectinload(Invoice.lines)).where(Invoice.id == invoice_id))
+    if not inv: raise HTTPException(404, "Invoice not found")
+    buyer = db.get(Party, inv.party_id)
+    company = db.get(Company, inv.company_id)
+    total = float(inv.total_amount or 0)
+    tax = float(inv.tax_amount or 0)
+    supply_type = "B2B" if buyer and buyer.gstin else "B2C"
+    return {
+      "Version": "1.1",
+      "TranDtls": {"TaxTyp": "GST", "RegrFlg": supply_type, "SupTyp": "B2B" if supply_type == "B2B" else "B2C", "RegRev": "N", "RevType": "0"},
+      "DocDtls": {"Typ": "INV", "No": inv.number, "Dt": inv.invoice_date.strftime("%d/%m/%Y")},
+      "SellerDtls": {"Gstin": "", "LglNm": company.name if company else "Seller", "Addr": {"Addr1": "", "Addr2": "", "Locality": "", "Loc": "", "Pin": "", "Stcd": ""}},
+      "BuyerDtls": {"Gstin": buyer.gstin or "", "LglNm": buyer.name if buyer else "Buyer", "Addr": {"Addr1": getattr(buyer, 'address', '') if buyer else "", "Loc": "", "Pin": "", "Stcd": ""}, "Pos": "32" if buyer else ""},
+      "ItemList": [{
+          "SlNo": str(idx + 1),
+          "HsnCd": "00000000",
+          "Dsc": l.description,
+          "Qty": float(l.quantity),
+          "UnitPrice": float(l.unit_price),
+          "AssAmt": float(l.quantity * l.unit_price),
+          "GstRate": float(l.tax_rate),
+          "CgstAmt": 0.0,
+          "SgstAmt": 0.0,
+          "IgstAmt": float(l.quantity * l.unit_price * l.tax_rate / 100),
+          "TotAmt": float(l.quantity * l.unit_price * (1 + l.tax_rate / 100)),
+      } for idx, l in enumerate(inv.lines)],
+      "ValDtls": {"AssVal": float(inv.subtotal or 0), "CgstVal": tax/2, "SgstVal": tax/2, "IgstVal": tax, "CesVal": 0.0, "TotInvVal": total, "Discount": 0.0}
+    }
+
 @router.get("/invoices/{invoice_id}/e-invoice.xml")
 def export_invoice_einvoice(invoice_id: int, db: Session = Depends(get_db)):
     inv = db.get(Invoice, invoice_id)

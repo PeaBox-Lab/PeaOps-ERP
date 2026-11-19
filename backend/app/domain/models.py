@@ -26,6 +26,31 @@ class Company(Base):
     base_currency: Mapped[str] = mapped_column(String(3), default="INR")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+class Group(Base):
+    __tablename__ = "groups"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), unique=True, index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    companies: Mapped[list["GroupCompany"]] = relationship("GroupCompany", back_populates="group", cascade="all, delete-orphan")
+    members: Mapped[list["GroupMember"]] = relationship("GroupMember", back_populates="group", cascade="all, delete-orphan")
+
+class GroupCompany(Base):
+    __tablename__ = "group_companies"
+    __table_args__ = (UniqueConstraint("group_id", "company_id", name="uq_group_company"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    group: Mapped[Group] = relationship("Group", back_populates="companies")
+
+class GroupMember(Base):
+    __tablename__ = "group_members"
+    __table_args__ = (UniqueConstraint("group_id", "user_id", name="uq_group_member"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    group: Mapped[Group] = relationship("Group", back_populates="members")
 class Branch(Base):
     __tablename__ = "branches"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -78,6 +103,7 @@ class Party(Base):
     code: Mapped[str] = mapped_column(String(30), index=True)
     name: Mapped[str] = mapped_column(String(180))
     gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    address: Mapped[str] = mapped_column(Text, default="")
     credit_limit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=MONEY_ZERO)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 class Item(Base):
@@ -87,6 +113,7 @@ class Item(Base):
     sku: Mapped[str] = mapped_column(String(50), index=True)
     name: Mapped[str] = mapped_column(String(180))
     unit: Mapped[str] = mapped_column(String(20), default="EA")
+    hsn_code: Mapped[str] = mapped_column(String(10), default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 class Warehouse(Base):
     __tablename__ = "warehouses"
@@ -878,6 +905,19 @@ class SmtpSetting(Base):
     password: Mapped[str] = mapped_column(String(300), default="")
     from_address: Mapped[str] = mapped_column(String(300), default="")
     use_tls: Mapped[bool] = mapped_column(Boolean, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SsoSetting(Base):
+    __tablename__ = "sso_settings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    issuer: Mapped[str] = mapped_column(String(500), default="")
+    client_id: Mapped[str] = mapped_column(String(200), default="")
+    client_secret: Mapped[str] = mapped_column(String(500), default="")
+    redirect_uri: Mapped[str] = mapped_column(String(500), default="")
+    scopes: Mapped[str] = mapped_column(String(200), default="openid profile email")
+    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True, index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

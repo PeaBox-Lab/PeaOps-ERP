@@ -369,6 +369,42 @@ class SendInvoiceEmailRequest(BaseModel):
     body: str | None = None
 
 
+class ItemCreate(BaseModel):
+    company_id: int
+    sku: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=180)
+    unit: str = Field(default="EA", max_length=20)
+    active: bool = True
+
+
+class ItemUpdate(BaseModel):
+    name: str | None = None
+    unit: str | None = None
+    hsn_code: str | None = None
+    active: bool | None = None
+
+
+class SsoSettingCreate(BaseModel):
+    issuer: str = ""
+    client_id: str = ""
+    client_secret: str = ""
+    redirect_uri: str = ""
+    scopes: str = "openid profile email"
+    company_id: int | None = None
+    active: bool = False
+
+
+class WarehouseCreate(BaseModel):
+    company_id: int
+    code: str = Field(min_length=1, max_length=30)
+    name: str = Field(min_length=1, max_length=160)
+
+
+class WarehouseUpdate(BaseModel):
+    code: str | None = None
+    name: str | None = None
+
+
 class SmtpSettingCreate(BaseModel):
     host: str = ""
     port: int = 587

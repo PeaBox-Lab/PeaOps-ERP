@@ -1,0 +1,25 @@
+groups:
+  - name: peaops
+    rules:
+      - alert: PeaOpsApiDown
+        expr: pg_up == 0 or absent(peaops_build_info) or probe_success == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "PeaOps API or DB unreachable"
+          description: "No PeaOps metrics for 5m — investigate containers/network"
+
+      - alert: PeaOpsHighErrorRate
+        expr: rate(peaops_errors_total[5m]) > 5
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Elevated 5xx responses"
+          description: "PeaOps error rate above threshold for 10m"
+
+      - alert: PeaOpsNoTraffic
+        expr: rate(peaops_requests_total[5m]) == 0
+        for: 30m
+        labels: { severity: info }
+        annotations:
+          summary: "No API traffic for 30m"

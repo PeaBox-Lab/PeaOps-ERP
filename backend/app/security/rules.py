@@ -34,7 +34,7 @@ def normalize_permissions(values:list[str]):
 
 
 def authorize(user_permissions:set[str],required:str):
-    if 'admin:*' in user_permissions or required in user_permissions:return True
+    if 'admin:*' in user_permissions or 'super_admin:*' in user_permissions or required in user_permissions:return True
     domain=required.split(':',1)[0]+':*'
     if domain in user_permissions:return True
     raise PermissionError(f'Missing permission: {required}')

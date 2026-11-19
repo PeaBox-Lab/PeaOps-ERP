@@ -80,7 +80,7 @@ docker compose -f docker-compose.production.yml up -d
 if ($SeedDemo) {
   Write-Host "==> Seeding demo company + admin"
   docker compose -f docker-compose.production.yml cp scripts/seed_pilot_demo.py api:/tmp/seed_pilot_demo.py
-  docker compose -f docker-compose.production.yml exec -T -e PYTHONPATH=/app api python /tmp/seed_pilot_demo.py
+  docker compose -f docker-compose.production.yml exec -T -e PYTHONPATH=/app -e PEAOPS_SUPERADMIN_USERNAME="$env:PEAOPS_SUPERADMIN_USERNAME" -e PEAOPS_SUPERADMIN_PASSWORD="$env:PEAOPS_SUPERADMIN_PASSWORD" api python /tmp/seed_pilot_demo.py
 }
 
 Write-Host ""

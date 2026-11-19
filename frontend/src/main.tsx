@@ -8,6 +8,8 @@ import TypedForm, { type TypedFormKind } from './typedForms';
 import SpecForm, { type FormSpec } from './specForm';
 import { HorizontalBarChart, Donut, CHART_COLORS } from './charts';
 import { SearchResults, SearchBox } from './Search';
+import AddCompanyForm from './components/AddCompanyForm';
+import { CompanySwitcher } from './components/CompanySwitcher';
 
 const CID = () => loadSession()?.companyId ?? 1;
 
@@ -105,6 +107,8 @@ const SUPPLIER_SRC = { path: `/parties?company_id=${CID()}&party_type=supplier`,
 const PO_SRC = { path: `/purchase-orders?company_id=${CID()}`, value: 'id', label: 'number' };
 const BOM_SRC = { path: `/bill-of-materials?company_id=${CID()}`, value: 'id', label: 'id' };
 const ASSET_SRC = { path: `/maintenance-assets?company_id=${CID()}`, value: 'id', label: 'name' };
+const ITEM_SRC = { path: `/items?company_id=${CID()}`, value: 'id', label: 'sku' };
+const WAREHOUSE_SRC = { path: `/warehouses?company_id=${CID()}`, value: 'id', label: 'name' };
 const BANK_SRC = { path: `/bank-accounts?company_id=${CID()}`, value: 'id', label: 'name' };
 
 const M: ModuleCfg[] = [
@@ -307,12 +311,21 @@ const M: ModuleCfg[] = [
     ] } },
   ]},
   { id: 'inventory', label: 'Inventory', icon: '◐', pages: [
-    { id: 'items', title: 'Items', getPath: '/inventory/balances', note: 'Set item master data via SQL or API. Balances shown here.' },
+    { id: 'items', title: 'Items', getPath: '/items', empty: 'No items yet.', post: { label: 'Create item', path: '/items', body: '{}' }, spec: { title: 'New item', fields: [
+      { key: 'sku', label: 'SKU', required: true, def: '' },
+      { key: 'name', label: 'Name', required: true, def: '' },
+      { key: 'unit', label: 'Unit', def: 'EA' },
+      { key: 'active', label: 'Active', type: 'checkbox', def: 'true' },
+    ] } },
+    { id: 'warehouses', title: 'Warehouses', getPath: '/warehouses', empty: 'No warehouses yet.', post: { label: 'Create warehouse', path: '/warehouses', body: '{}' }, spec: { title: 'New warehouse', fields: [
+      { key: 'code', label: 'Code', required: true, def: 'MAIN' },
+      { key: 'name', label: 'Name', required: true, def: 'Main warehouse' },
+    ] } },
     { id: 'balances', title: 'Stock balances', getPath: '/inventory/balances', empty: 'No stock on hand.' },
     { id: 'ledger', title: 'Stock ledger', getPath: '/inventory/ledger', note: 'Full immutable movement history.' },
     { id: 'movements', title: 'Stock movements', post: { label: 'Create movement', path: '/inventory/movements', body: '{}' }, spec: { title: 'New stock movement', fields: [
-      { key: 'item_id', label: 'Item ID', type: 'number', required: true, def: '1', min: 1 },
-      { key: 'warehouse_id', label: 'Warehouse ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'item_id', label: 'Item', type: 'select', required: true, optionsFrom: { ...ITEM_SRC }, asNumber: true },
+      { key: 'warehouse_id', label: 'Warehouse', type: 'select', required: true, optionsFrom: { ...WAREHOUSE_SRC }, asNumber: true },
       { key: 'movement_type', label: 'Movement type', type: 'select', def: 'opening', options: [['opening', 'Opening'], ['receipt', 'Receipt'], ['issue', 'Issue'], ['adjustment_in', 'Adjustment in'], ['adjustment_out', 'Adjustment out']] },
       { key: 'movement_date', label: 'Date', type: 'date', required: true, def: today() },
       { key: 'quantity', label: 'Quantity', type: 'number', required: true, def: '100', step: 'any' },
@@ -323,21 +336,21 @@ const M: ModuleCfg[] = [
     { id: 'reorder', title: 'Reorder alerts', getPath: '/inventory/reorder-alerts', empty: 'All stocked well.' },
     { id: 'transfers', title: 'Stock transfers', post: { label: 'Create transfer', path: '/stock-transfers', body: '{}' }, spec: { title: 'New stock transfer', fields: [
       { key: 'transfer_date', label: 'Date', type: 'date', required: true, def: today() },
-      { key: 'source_warehouse_id', label: 'From warehouse', type: 'number', required: true, def: '1', min: 1 },
-      { key: 'destination_warehouse_id', label: 'To warehouse', type: 'number', required: true, def: '2', min: 1 },
+      { key: 'source_warehouse_id', label: 'From warehouse', type: 'select', required: true, optionsFrom: { ...WAREHOUSE_SRC }, asNumber: true },
+      { key: 'destination_warehouse_id', label: 'To warehouse', type: 'select', required: true, optionsFrom: { ...WAREHOUSE_SRC }, asNumber: true },
       { key: 'notes', label: 'Notes', def: 'Replenishment' },
     ], lines: { key: 'lines', label: 'Items to transfer', addLabel: 'Add item', minRows: 1, columns: [
-      { key: 'item_id', label: 'Item ID', type: 'number', def: '1' },
+      { key: 'item_id', label: 'Item', type: 'select', optionsFrom: { ...ITEM_SRC }, asNumber: true },
       { key: 'quantity', label: 'Qty', type: 'number', def: '10' },
     ] } }, actions: [{ label: 'Post transfer', path: id => `/stock-transfers/${id}/post`, body: '{}' }] },
     { id: 'reservations', title: 'Reservations', post: { label: 'Reserve stock', path: '/inventory/reservations', body: '{}' }, spec: { title: 'Reserve stock', fields: [
-      { key: 'item_id', label: 'Item ID', type: 'number', required: true, def: '1', min: 1 },
-      { key: 'warehouse_id', label: 'Warehouse ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'item_id', label: 'Item', type: 'select', required: true, optionsFrom: { ...ITEM_SRC }, asNumber: true },
+      { key: 'warehouse_id', label: 'Warehouse', type: 'select', required: true, optionsFrom: { ...WAREHOUSE_SRC }, asNumber: true },
       { key: 'quantity', label: 'Quantity', type: 'number', required: true, def: '5', step: 'any' },
     ] } },
     { id: 'policies', title: 'Reorder policies', post: { label: 'Create policy', path: '/inventory/policies', body: '{}' }, spec: { title: 'New reorder policy', fields: [
-      { key: 'item_id', label: 'Item ID', type: 'number', required: true, def: '1', min: 1 },
-      { key: 'warehouse_id', label: 'Warehouse ID', type: 'number', required: true, def: '1', min: 1 },
+      { key: 'item_id', label: 'Item', type: 'select', required: true, optionsFrom: { ...ITEM_SRC }, asNumber: true },
+      { key: 'warehouse_id', label: 'Warehouse', type: 'select', required: true, optionsFrom: { ...WAREHOUSE_SRC }, asNumber: true },
       { key: 'tracking_mode', label: 'Tracking', type: 'select', def: 'lot', options: [['lot', 'Lot'], ['serial', 'Serial'], ['none', 'None']] },
       { key: 'reorder_point', label: 'Reorder point', type: 'number', def: '10', step: 'any' },
       { key: 'reorder_quantity', label: 'Reorder quantity', type: 'number', def: '50', step: 'any' },
@@ -559,8 +572,12 @@ function App() {
   return (<div className="appShell">
     <aside className="sidebar">
       <div className="brandBlock"><div className="brand"><i>pea</i>Ops <b>ERP</b></div><small>v0.8.2 • on-prem LIVE</small></div>
+      <CompanySwitcher onSwitch={s => { setSession(s); window.location.hash = '#/dashboard'; }} />
       <nav className="sideNav">
         <a href="#/dashboard" className={route.module === 'dashboard' ? 'active' : ''}><span>⌂</span>Overview</a>
+        {session?.permissions?.includes('super_admin:*') && (
+          <a href="#/admin/add-company" className={route.module === 'admin' && route.page === 'add-company' ? 'active' : ''}><span>+</span>Add company</a>
+        )}
         <SearchBox onSubmit={q => { window.location.hash = `#/search/${encodeURIComponent(q)}`; }} />
         {MODULES.map(m => <div key={m.id} className="navGroup"><p>{m.label}</p>{m.pages.slice(0, 4).map(p => <a key={p.id} href={`#/${m.id}/${p.id}`} className={route.module === m.id && route.page === p.id ? 'active' : ''}><span>{m.icon}</span>{p.title}</a>)}</div>)}
       </nav>
@@ -568,6 +585,7 @@ function App() {
     </aside>
     <main className="content">
       {route.module === 'dashboard' && <Dashboard session={session} />}
+      {route.module === 'admin' && route.page === 'add-company' && <AddCompanyForm />}
       {route.module === 'search' && <SearchResults query={decodeURIComponent(route.page)} />}
       {activeModule && activePage && <EntityPage key={`${activeModule.id}/${activePage.id}`} page={activePage} />}
       {activeModule && !activePage && <header><div><p className="eyebrow">{activeModule.label.toUpperCase()}</p><h1>{activeModule.label}</h1></div></header>}
