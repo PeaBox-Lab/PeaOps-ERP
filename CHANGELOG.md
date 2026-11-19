@@ -1,11 +1,27 @@
 
 # Changelog
 
-## Unreleased — VM-ready, guided UI, hosting playbook
+## Unreleased — VM-ready, guided UI, hosting playbook, invoice PDF/email
 ### Added
-- Guided, schema-driven forms for every create action in the web UI (typed fields, live totals, line-item editors, remote dropdowns) — invoice, payment, journal, party, lead, opportunity, plus all procurement, inventory, projects, manufacturing, maintenance, consolidation, treasury, reports, admin and platform endpoints.
-- Dashboard charts (capital profile, top customers, AR donut) and live KPI tiles.
-- Prometheus metrics endpoint (`/metrics/prometheus`) alongside JSON `/metrics`.
+- Global cross-module search (`GET /api/v1/search`, typed hits across invoices, sales/purchase orders, quotes, parties, items)
+- Sidebar search input + `#/search/<query>` results page (type pills, reference labels)
+- CSV/XLSX export for sales orders, purchase orders and parties
+- Invoice PDF export (professional layout, party GSTIN, lines, totals)
+- Invoice e-invoice XML export (existing, retained)
+- Invoice email via optional SMTP; **mailto fallback** when SMTP is not configured
+- Prometheus metrics at `/metrics/prometheus`
+- Test session isolation (`conftest.py`) and period-close enforcement tests
+- Web container IPv6 listen fix (healthcheck no longer fails)
+- `.dockerignore` files, runtime/dev requirements split, VM installers, hosting and audit docs, help-topics guide, UI walkthrough
+- Guided, schema-driven forms for every create action in the web UI
+- Dashboard charts (capital profile, top customers, AR donut) and live KPI tiles
+- Silent session refresh (see Fixed)
+
+### Fixed
+- **Silent session expiry**: frontend never used the refresh token — every call failed after 15 minutes with "Token expired". `api.ts` now refreshes 30s before expiry and retries once on 401 (single-flight), with graceful sign-out on failure.
+
+### Changed
+- Frontend tables render status columns as colored pills; legacy `/health` removed; connection pool pre-ping enabled.
 - End-to-end API flow test (login → invoice → allocation) running in CI on an isolated database; test-session isolation via `tests/conftest.py`.
 - `deploy/install.sh` / `deploy/install.ps1`: one-command VM installers (Docker, .env generation, self-signed or real TLS certs, build, start, optional demo seed, preflight).
 - `deployment/server/scripts/seed_pilot_demo.py` and `gen_self_signed_cert.py` shared helpers.

@@ -10,5 +10,11 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173"
     trust_proxy_headers: bool = False
     auto_create_schema: bool = True
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_tls: bool = True
     model_config = SettingsConfigDict(env_prefix="PEAOPS_", env_file=".env", extra="ignore")
 settings = Settings()

@@ -48,6 +48,7 @@ class JournalEntry(Base):
     reference: Mapped[str] = mapped_column(String(60), index=True)
     description: Mapped[str] = mapped_column(String(240), default="")
     status: Mapped[str] = mapped_column(String(20), default=EntryStatus.DRAFT.value)
+    posting_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     lines: Mapped[list[JournalLine]] = relationship(back_populates="entry", cascade="all, delete-orphan")
@@ -715,6 +716,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     mfa_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Role(Base):
@@ -865,6 +867,19 @@ class Tenant(Base):
     billing_customer_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     region: Mapped[str] = mapped_column(String(40), default="in-central-1")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SmtpSetting(Base):
+    __tablename__ = "smtp_settings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    host: Mapped[str] = mapped_column(String(300), default="")
+    port: Mapped[int] = mapped_column(default=587)
+    username: Mapped[str] = mapped_column(String(300), default="")
+    password: Mapped[str] = mapped_column(String(300), default="")
+    from_address: Mapped[str] = mapped_column(String(300), default="")
+    use_tls: Mapped[bool] = mapped_column(Boolean, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Notification(Base):

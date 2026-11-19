@@ -10,7 +10,7 @@ from app.core.db import Base
 from app.domain import models  # noqa: F401
 revision='20261117_0002';down_revision='20261116_0001';branch_labels=None;depends_on=None
 
-NEW_TABLES=['notifications','attachments','bank_reconciliations','fixed_assets','leads','opportunities','bill_of_materials','bill_of_material_lines','work_orders','projects','project_tasks','maintenance_assets','maintenance_work_orders','ledger_consolidations','treasury_accounts']
+NEW_TABLES=['notifications','attachments','bank_reconciliations','fixed_assets','leads','opportunities','bill_of_materials','bill_of_material_lines','work_orders','projects','project_tasks','maintenance_assets','maintenance_work_orders','ledger_consolidations','treasury_accounts','smtp_settings']
 
 def _ensure_columns(table, columns):
     bind=op.get_bind(); inspector=sa.inspect(bind)

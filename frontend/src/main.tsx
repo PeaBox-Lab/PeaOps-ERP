@@ -3,17 +3,18 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 import { api, clearSession, loadSession, saveSession, money, type Session } from './api';
-import { DataTable, ErrorNote, Field, Select, Toast, Pill } from './ui';
+import { DataTable, ErrorNote, Field, Select, Toast } from './ui';
 import TypedForm, { type TypedFormKind } from './typedForms';
 import SpecForm, { type FormSpec } from './specForm';
 import { HorizontalBarChart, Donut, CHART_COLORS } from './charts';
+import { SearchResults, SearchBox } from './Search';
 
 const CID = () => loadSession()?.companyId ?? 1;
 
 /* ---------- generic endpoint page ---------- */
 type Action = { label: string; path: (v: string) => string; body: string; method?: 'POST' | 'GET'; spec?: FormSpec };
 type PageCfg = {
-  id: string; title: string; getPath?: string; query?: boolean; empty?: string;
+  id: string; title: string; getPath?: string; empty?: string;
   post?: { label: string; path: string; body: string };
   form?: TypedFormKind;
   spec?: FormSpec;
@@ -21,15 +22,11 @@ type PageCfg = {
 };
 type ModuleCfg = { id: string; label: string; icon: string; pages: PageCfg[] };
 
-const json = (o: unknown) => JSON.stringify(o, null, 2);
-
 function EntityPage({ page }: { page: PageCfg }) {
   const [rows, setRows] = useState<Array<Record<string, unknown>> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
-  const [createBody, setCreateBody] = useState(page.post?.body ?? '{}');
   const [actionValue, setActionValue] = useState('1'); const [actionIdx, setActionIdx] = useState(0);
-  const [actionBody, setActionBody] = useState(page.actions?.[0]?.body ?? '{}');
   const [tab, setTab] = useState<'view' | 'create' | 'actions'>('view');
 
   const load = useCallback(async () => {
@@ -44,25 +41,36 @@ function EntityPage({ page }: { page: PageCfg }) {
   }, [page.getPath]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setTab('view'); setActionIdx(0); setRows(null); setError(''); setMsg(''); setCreateBody(page.post?.body ?? '{}'); setActionBody(page.actions?.[0]?.body ?? '{}'); }, [page.id]);
+  useEffect(() => { setTab('view'); setActionIdx(0); setRows(null); setError(''); setMsg(''); }, [page.id]);
 
-  const runPost = async () => {
-    if (!page.post) return; setError(''); setMsg('');
-    try { const body = JSON.parse(createBody); const r = await api(page.post.path, { method: 'POST', body: JSON.stringify(body) }); setMsg(`Created: ${json(r)}`); void load(); } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
-  };
   const runAction = async () => {
     const a = page.actions?.[actionIdx]; if (!a) return; setError(''); setMsg('');
-    try { const body = JSON.parse(actionBody); const r = await api(a.path(actionValue), { method: a.method ?? 'POST', body: a.method === 'GET' ? undefined : JSON.stringify(body) }); setMsg(`OK: ${json(r)}`); void load(); } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    try {
+      if (a.method === 'GET' && /\.(pdf|xml|csv|xlsx)$/i.test(a.path(actionValue))) {
+        window.open(`/api/v1${a.path(actionValue)}`, '_blank');
+        return;
+      }
+      const r = await api(a.path(actionValue), { method: a.method ?? 'POST', body: a.method === 'GET' ? undefined : '{}' });
+      if (r && typeof r === 'object' && typeof (r as Record<string, unknown>).mailto === 'string') {
+        const mailto = String((r as Record<string, unknown>).mailto);
+        setMsg('SMTP not configured — opening your mail client…');
+        window.open(mailto, '_self');
+      } else {
+        setMsg(`OK: ${JSON.stringify(r)}`);
+      }
+      void load();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
   };
 
   return (<>
-    <header><div><p className="eyebrow">MODULE / {page.title.toUpperCase()}</p><h1>{page.title}</h1>{page.note && <p>{page.note}</p>}</div>{page.getPath && <button className="ghost" onClick={() => void load()}>Refresh</button>}</header>
+    <header><div><p className="eyebrow">MODULE / {page.title.toUpperCase()}</p><h1>{page.title}</h1>{page.note && <p>{page.note}</p>}</div><div className="headerActions"><button className="ghost" onClick={() => window.print()}>Print</button>{page.getPath && <button className="ghost" onClick={() => void load()}>Refresh</button>}</div></header>
     {error && <ErrorNote e={error} />}{msg && <Toast msg={msg} />}
     <div className="tabs">{page.getPath && <button className={tab === 'view' ? 'active' : ''} onClick={() => setTab('view')}>View</button>}{(page.post || page.form || page.spec) && <button className={tab === 'create' ? 'active' : ''} onClick={() => setTab('create')}>Create</button>}{page.actions && page.actions.length > 0 && <button className={tab === 'actions' ? 'active' : ''} onClick={() => setTab('actions')}>Action</button>}</div>
 
     {tab === 'view' && page.getPath && <section className="panel"><DataTable rows={rows} loading={loading} empty={page.empty} /></section>}
-    {tab === 'create' && (page.post || page.form || page.spec) && (page.form ? <TypedForm kind={page.form} onDone={m => { setMsg(m); void load(); }} /> : page.spec ? <SpecForm spec={page.spec} resolvePath={() => page.post!.path} onDone={m => { setMsg(m); void load(); }} /> : <section className="panel"><p className="eyebrow">POST {page.post!.path}</p><h2>Create</h2><textarea className="jsonArea" rows={16} spellCheck={false} value={createBody} onChange={e => setCreateBody(e.target.value)} /><button className="primary" onClick={() => void runPost()}>Submit</button></section>)}
-    {tab === 'actions' && page.actions && <section className="panel"><p className="eyebrow">ACTION</p><h2>{page.actions[actionIdx]?.label}</h2><div className="formInline">{!page.actions[actionIdx]?.spec && <Field label="Record ID" value={actionValue} onChange={setActionValue} />}<Select label="Action" value={String(actionIdx)} onChange={v => { const i = Number(v); setActionIdx(i); setActionBody(page.actions![i].body); }} options={page.actions.map((a, i) => [String(i), a.label])} /></div>{page.actions[actionIdx]?.spec ? <SpecForm spec={page.actions[actionIdx].spec!} resolvePath={id => page.actions![actionIdx].path(id)} recordId={true} onDone={m => { setMsg(m); void load(); }} /> : <><textarea className="jsonArea" rows={8} spellCheck={false} value={actionBody} onChange={e => setActionBody(e.target.value)} /><button className="primary" onClick={() => void runAction()}>Run</button></>}</section>}
+    {tab === 'create' && page.form && <TypedForm kind={page.form} onDone={m => { setMsg(m); void load(); }} />}
+    {tab === 'create' && page.spec && !page.form && <SpecForm spec={page.spec} resolvePath={() => page.post!.path} onDone={m => { setMsg(m); void load(); }} />}
+    {tab === 'actions' && page.actions && <section className="panel"><p className="eyebrow">ACTION</p><h2>{page.actions[actionIdx]?.label}</h2><div className="formInline">{!page.actions[actionIdx]?.spec && <Field label="Record ID" value={actionValue} onChange={setActionValue} />}<Select label="Action" value={String(actionIdx)} onChange={v => { const i = Number(v); setActionIdx(i); }} options={page.actions.map((a, i) => [String(i), a.label])} /></div>{page.actions[actionIdx]?.spec ? <SpecForm spec={page.actions[actionIdx].spec!} resolvePath={id => page.actions![actionIdx].path(id)} recordId={true} onDone={m => { setMsg(m); void load(); }} /> : <button className="primary" onClick={() => void runAction()}>Run</button>}</section>}
   </>);
 }
 
@@ -112,8 +120,24 @@ const M: ModuleCfg[] = [
       { key: 'next_number', label: 'Next number', type: 'number', def: '1', min: 1 },
       { key: 'padding', label: 'Padding', type: 'number', def: '5', min: 1, max: 12 },
     ] }, note: 'Required before documents can be numbered.' },
-    { id: 'invoices', title: 'Invoices', getPath: '/invoices?invoice_type=ar', form: 'ar-invoice', post: { label: 'Create invoice', path: '/invoices', body: '{}' }, actions: [{ label: 'Post invoice', path: id => `/invoices/${id}/post`, body: '{}' }], empty: 'No AR invoices yet.', note: 'Creating an invoice reserves nothing; post it after review.' },
-    { id: 'ap-invoices', title: 'Vendor invoices', getPath: '/invoices?invoice_type=ap', form: 'ap-invoice', post: { label: 'Create AP invoice', path: '/invoices', body: '{}' }, actions: [{ label: 'Post invoice', path: id => `/invoices/${id}/post`, body: '{}' }], empty: 'No AP invoices yet.' },
+    { id: 'invoices', title: 'Invoices', getPath: '/invoices?invoice_type=ar', form: 'ar-invoice', post: { label: 'Create invoice', path: '/invoices', body: '{}' }, actions: [
+      { label: 'Post invoice', path: id => `/invoices/${id}/post`, body: '{}' },
+      { label: 'Download PDF', path: id => `/invoices/${id}/pdf`, body: '{}', method: 'GET', spec: undefined },
+      { label: 'Send email', path: id => `/invoices/${id}/send-email`, body: '{}', spec: { title: 'Send invoice by email', fields: [
+        { key: 'to_email', label: 'Recipient email', type: 'text', required: true, def: '', placeholder: 'customer@example.com' },
+        { key: 'subject', label: 'Subject', def: '', placeholder: 'Leave blank for default' },
+        { key: 'body', label: 'Message body', type: 'textarea', def: '', placeholder: 'Leave blank for default' },
+      ] } },
+    ], empty: 'No AR invoices yet.', note: 'Creating an invoice reserves nothing; post it after review.' },
+    { id: 'ap-invoices', title: 'Vendor invoices', getPath: '/invoices?invoice_type=ap', form: 'ap-invoice', post: { label: 'Create AP invoice', path: '/invoices', body: '{}' }, actions: [
+      { label: 'Post invoice', path: id => `/invoices/${id}/post`, body: '{}' },
+      { label: 'Download PDF', path: id => `/invoices/${id}/pdf`, body: '{}', method: 'GET' },
+      { label: 'Send email', path: id => `/invoices/${id}/send-email`, body: '{}', spec: { title: 'Send invoice by email', fields: [
+        { key: 'to_email', label: 'Recipient email', type: 'text', required: true, def: '', placeholder: 'vendor@example.com' },
+        { key: 'subject', label: 'Subject', def: '', placeholder: 'Leave blank for default' },
+        { key: 'body', label: 'Message body', type: 'textarea', def: '', placeholder: 'Leave blank for default' },
+      ] } },
+    ], empty: 'No AP invoices yet.' },
     { id: 'payments', title: 'Payments & allocations', form: 'payment', post: { label: 'Record receipt / payment', path: '/payments', body: '{}' }, actions: [{ label: 'Allocate payment to invoice', path: id => `/payments/${id}/allocate`, body: '{}', spec: { title: 'Allocate payment', fields: [
       { key: 'invoice_id', label: 'Invoice ID', type: 'number', required: true, def: '1', min: 1 },
       { key: 'amount', label: 'Amount', type: 'number', required: true, def: '295000', min: 0, step: 'any' },
@@ -170,7 +194,14 @@ const M: ModuleCfg[] = [
       { key: 'valid_until', label: 'Valid until', type: 'date', required: true, def: '2026-12-31' },
       { key: 'currency', label: 'Currency', def: 'INR' },
       { key: 'notes', label: 'Notes', def: 'Thanks for your business' },
-    ], lines: SALES_LINES('Quoted items') }, actions: [{ label: 'Send quote', path: id => `/sales-quotes/${id}/send`, body: '{}' }] },
+    ], lines: SALES_LINES('Quoted items') }, actions: [{ label: 'Send quote', path: id => `/sales-quotes/${id}/send`, body: '{}' },
+      { label: 'Download PDF', path: id => `/sales-quotes/${id}/pdf`, body: '{}', method: 'GET' },
+      { label: 'Send email', path: id => `/sales-quotes/${id}/send-email`, body: '{}', spec: { title: 'Send quote by email', fields: [
+        { key: 'to_email', label: 'Recipient email', type: 'text', required: true, def: '', placeholder: 'customer@example.com' },
+        { key: 'subject', label: 'Subject', def: '', placeholder: 'Leave blank for default' },
+        { key: 'body', label: 'Message body', type: 'textarea', def: '', placeholder: 'Leave blank for default' },
+      ] } },
+    ] },
     { id: 'orders', title: 'Sales orders', getPath: '/sales-orders', post: { label: 'Create order', path: '/sales-orders', body: '{}' }, spec: { title: 'New sales order', fields: [
       { key: 'customer_id', label: 'Customer', type: 'select', required: true, asNumber: true, optionsFrom: { ...CUSTOMER_SRC } },
       { key: 'order_date', label: 'Order date', type: 'date', required: true, def: today() },
@@ -194,6 +225,12 @@ const M: ModuleCfg[] = [
         { key: 'sales_order_line_id', label: 'Order line ID', type: 'number', def: '1' },
         { key: 'quantity', label: 'Qty', type: 'number', def: '1' },
       ] }, transform: payload => ({ idempotency_key: payload.idempotency_key && String(payload.idempotency_key).trim() ? payload.idempotency_key : crypto.randomUUID() }) } },
+      { label: 'Download PDF', path: id => `/sales-orders/${id}/pdf`, body: '{}', method: 'GET' },
+      { label: 'Send email', path: id => `/sales-orders/${id}/send-email`, body: '{}', spec: { title: 'Send order by email', fields: [
+        { key: 'to_email', label: 'Recipient email', type: 'text', required: true, def: '', placeholder: 'customer@example.com' },
+        { key: 'subject', label: 'Subject', def: '', placeholder: 'Leave blank for default' },
+        { key: 'body', label: 'Message body', type: 'textarea', def: '', placeholder: 'Leave blank for default' },
+      ] } },
     ], note: 'Integrity: quote → order → delivery → invoice.' },
   ]},
   { id: 'procurement', label: 'Procurement', icon: '◔', pages: [
@@ -253,6 +290,12 @@ const M: ModuleCfg[] = [
         { key: 'unit_price', label: 'Unit price', type: 'number', def: '14000' },
         { key: 'tax_rate', label: 'Tax %', type: 'number', def: '18' },
       ] }, transform: payload => ({ idempotency_key: payload.idempotency_key && String(payload.idempotency_key).trim() ? payload.idempotency_key : crypto.randomUUID() }) } },
+      { label: 'Download PDF', path: id => `/purchase-orders/${id}/pdf`, body: '{}', method: 'GET' },
+      { label: 'Send email', path: id => `/purchase-orders/${id}/send-email`, body: '{}', spec: { title: 'Send purchase order by email', fields: [
+        { key: 'to_email', label: 'Recipient email', type: 'text', required: true, def: '', placeholder: 'supplier@example.com' },
+        { key: 'subject', label: 'Subject', def: '', placeholder: 'Leave blank for default' },
+        { key: 'body', label: 'Message body', type: 'textarea', def: '', placeholder: 'Leave blank for default' },
+      ] } },
     ] },
     { id: 'landed-costs', title: 'Landed costs', getPath: '/landed-costs', post: { label: 'Allocate landed cost', path: '/landed-costs', body: '{}' }, spec: { title: 'Allocate landed cost', fields: [
       { key: 'purchase_order_id', label: 'Purchase order', type: 'select', required: true, asNumber: true, optionsFrom: { ...PO_SRC } },
@@ -401,6 +444,15 @@ const M: ModuleCfg[] = [
     ], transform: payload => ({ parameters: (() => { try { return JSON.parse(String(payload.parameters || '{}')); } catch { return {}; } })() }) }, note: 'Returns the report payload directly.' },
   ]},
   { id: 'admin', label: 'Administration', icon: '◘', pages: [
+    { id: 'smtp', title: 'Email / SMTP', getPath: '/admin/smtp-settings', spec: { title: 'SMTP / email settings', fields: [
+      { key: 'host', label: 'SMTP host', def: 'smtp.gmail.com', placeholder: 'smtp.gmail.com' },
+      { key: 'port', label: 'Port', type: 'number', def: '587', min: 1, max: 65535 },
+      { key: 'username', label: 'Username', def: '', placeholder: 'you@example.com' },
+      { key: 'password', label: 'Password', type: 'password', def: '', placeholder: 'Leave blank to keep existing' },
+      { key: 'from_address', label: 'From address', def: '', placeholder: 'you@example.com' },
+      { key: 'use_tls', label: 'Use TLS', type: 'checkbox', def: 'true' },
+      { key: 'active', label: 'Enable email sending', type: 'checkbox', def: 'true' },
+    ] }, post: { label: 'Save SMTP settings', path: '/admin/smtp-settings', body: '{}' }, note: 'Configures outbound email for invoices, alerts and saved reports.' },
     { id: 'users', title: 'Create user', post: { label: 'Create user', path: '/admin/users', body: '{}' }, spec: { title: 'New user', fields: [
       { key: 'username', label: 'Username', required: true, def: 'finance.manager' },
       { key: 'display_name', label: 'Display name', required: true, def: 'Finance Manager' },
@@ -499,6 +551,7 @@ function App() {
   useEffect(() => { const h = () => setRoute(parseHash()); window.addEventListener('hashchange', h); return () => window.removeEventListener('hashchange', h); }, []);
 
   if (!session) return <Login onLogin={() => setSession(loadSession())} />;
+  if (session.mustChangePassword) return <ForcePasswordChange onChanged={() => setSession(loadSession())} />;
 
   const activeModule = route.module !== 'dashboard' ? MODULES.find(m => m.id === route.module) : undefined;
   const activePage = activeModule?.pages.find(p => p.id === route.page);
@@ -508,12 +561,14 @@ function App() {
       <div className="brandBlock"><div className="brand"><i>pea</i>Ops <b>ERP</b></div><small>v0.8.2 • on-prem LIVE</small></div>
       <nav className="sideNav">
         <a href="#/dashboard" className={route.module === 'dashboard' ? 'active' : ''}><span>⌂</span>Overview</a>
+        <SearchBox onSubmit={q => { window.location.hash = `#/search/${encodeURIComponent(q)}`; }} />
         {MODULES.map(m => <div key={m.id} className="navGroup"><p>{m.label}</p>{m.pages.slice(0, 4).map(p => <a key={p.id} href={`#/${m.id}/${p.id}`} className={route.module === m.id && route.page === p.id ? 'active' : ''}><span>{m.icon}</span>{p.title}</a>)}</div>)}
       </nav>
       <div className="sideFooter"><div className="who"><b>{session.username}</b><small>Company #{session.companyId}</small></div><button className="textBtn" onClick={() => { clearSession(); window.location.hash = ''; setSession(null); }}>Sign out →</button></div>
     </aside>
     <main className="content">
       {route.module === 'dashboard' && <Dashboard session={session} />}
+      {route.module === 'search' && <SearchResults query={decodeURIComponent(route.page)} />}
       {activeModule && activePage && <EntityPage key={`${activeModule.id}/${activePage.id}`} page={activePage} />}
       {activeModule && !activePage && <header><div><p className="eyebrow">{activeModule.label.toUpperCase()}</p><h1>{activeModule.label}</h1></div></header>}
       {activeModule && <nav className="tabs tabsFooter">{activeModule.pages.map(p => <a key={p.id} className={route.page === p.id ? 'active' : ''} href={`#/${activeModule.id}/${p.id}`}>{p.title}</a>)}</nav>}
@@ -522,18 +577,39 @@ function App() {
   </div>);
 }
 
+function ForcePasswordChange({ onChanged }: { onChanged: () => void }) {
+  const [current, setCurrent] = useState(''); const [next, setNext] = useState(''); const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const session = loadSession()!;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError('');
+    if (next !== confirm) { setError('New password and confirmation do not match'); return; }
+    setBusy(true);
+    try {
+      await api('/auth/change-password', { method: 'POST', body: JSON.stringify({ company_id: session.companyId, username: session.username, current_password: current, new_password: next }) }, false);
+      const s = loadSession(); if (s) saveSession({ ...s, mustChangePassword: false });
+      onChanged();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Password change failed'); } finally { setBusy(false); }
+  };
+  return (<div className="loginWrap"><form className="loginCard" onSubmit={submit}><p className="eyebrow">SECURITY</p><h2>Set your password</h2><p>You are required to set a new password before continuing.</p>{error && <ErrorNote e={error} />}
+    <Field label="Current password" type="password" value={current} onChange={setCurrent} required />
+    <Field label="New password" type="password" value={next} onChange={setNext} required placeholder="12+ characters, mixed case, symbol" />
+    <Field label="Confirm new password" type="password" value={confirm} onChange={setConfirm} required />
+    <button className="primary full" disabled={busy}>{busy ? 'Saving…' : 'Save password'}</button></form></div>);
+}
+
 function Login({ onLogin }: { onLogin: () => void }) {
   const [companyId, setCompanyId] = useState('1'); const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [mfa, setMfa] = useState('');
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true); setError('');
     try {
-      const res = await api<{ access_token: string; refresh_token: string; permissions: string[] }>('/auth/login', { method: 'POST', body: JSON.stringify({ company_id: Number(companyId), username, password, ...(mfa ? { mfa_code: mfa } : {}) }) }, false);
-      saveSession({ token: res.access_token, refresh: res.refresh_token, companyId: Number(companyId), username, permissions: res.permissions });
+      const res = await api<{ access_token: string; refresh_token: string; permissions: string[]; expires_in: number; must_change_password?: boolean }>('/auth/login', { method: 'POST', body: JSON.stringify({ company_id: Number(companyId), username, password, ...(mfa ? { mfa_code: mfa } : {}) }) }, false);
+      saveSession({ token: res.access_token, refresh: res.refresh_token, companyId: Number(companyId), username, permissions: res.permissions, expiresAt: Date.now() + res.expires_in * 1000, mustChangePassword: !!res.must_change_password });
       onLogin();
     } catch (err) { setError(err instanceof Error ? err.message : 'Sign-in failed'); } finally { setBusy(false); }
   };
-  return (<div className="loginWrap"><div className="loginArt"><p className="eyebrow">PEAOPS ERP</p><h1>Run your whole<br/>business from one<br/><em>clean cockpit.</em></h1><p>Finance • Sales • Procurement • Inventory • Projects • Manufacturing — on your own Linux server, Apache-2.0.</p><ul><li>✓ Multi-company, RBAC, maker-checker approvals</li><li>✓ Postgres, Docker, SSO-ready, audit trail</li><li>✓ 116 automated tests</li></ul></div>
+  return (<div className="loginWrap"><div className="loginArt"><p className="eyebrow">PEAOPS ERP</p><h1>Run your whole<br/>business from one<br/><em>clean cockpit.</em></h1><p>Finance • Sales • Procurement • Inventory • Projects • Manufacturing — on your own Linux server, Apache-2.0.</p><ul><li>✓ Multi-company, RBAC, maker-checker approvals</li><li>✓ Postgres, Docker, SSO-ready, audit trail</li><li>✓ 119 automated tests</li></ul></div>
     <form className="loginCard" onSubmit={submit}><p className="eyebrow">SIGN IN</p><h2>Welcome back</h2>{error && <ErrorNote e={error} />}
       <Field label="Company ID" value={companyId} onChange={setCompanyId} required type="number" />
       <Field label="Username" value={username} onChange={setUsername} required placeholder="admin" />

@@ -8,10 +8,13 @@ from sqlalchemy import select, func, String
 from sqlalchemy.orm import Session, selectinload
 from app.core.db import get_db
 from app.core.config import settings
-from app.security.rules import hash_password, verify_password, create_access_token, normalize_permissions, create_refresh_token, hash_refresh_token, decode_access_token
+from app.security.rules import hash_password, verify_password, create_access_token, normalize_permissions, create_refresh_token, hash_refresh_token, decode_access_token, validate_password
 from app.security.service import permissions_for_user, require_permission
 from app.security.sod import validate_role_permissions, require_distinct_actor, require_version, require_approved_record
 from app.security.mfa import generate_secret, verify_totp
+from app.services.pdf_maker import build_document
+from app.services.email_sender import send_email
+from app.domain.period_guard import find_blocked_period, PeriodClosed
 from app.domain.models import (
     Company, Account, JournalEntry, JournalLine, AuditEvent, Party, FiscalPeriod,
     NumberSequence, BankAccount, Invoice, InvoiceLine, Payment, Item,
@@ -26,7 +29,7 @@ from app.domain.models import (
     BillOfMaterial, BillOfMaterialLine, WorkOrder,
     Project, ProjectTask,
     MaintenanceAsset, MaintenanceWorkOrder,
-    LedgerConsolidation, TreasuryAccount, LandedCost, Tenant
+    LedgerConsolidation, TreasuryAccount, LandedCost, Tenant, SmtpSetting
 )
 from .schemas import (
     CompanyCreate, AccountCreate, JournalCreate, PartyCreate, FiscalPeriodCreate,
@@ -37,7 +40,7 @@ from .schemas import (
     InventoryMovementCreate, StockTransferCreate, InventoryReservation, PostingProfileCreate,
     SalesDeliveryCreate, IntegratedSalesInvoiceCreate, SupplierInvoiceIntegratedCreate,
     SavedReportCreate, ReportRunCreate, UserCreate, LoginRequest, RoleCreate,
-    UserRoleAssignment, RefreshRequest, LogoutRequest, ApprovalCreate, ApprovalDecision,
+    UserRoleAssignment, RefreshRequest, LogoutRequest, ApprovalCreate, ApprovalDecision, ChangePasswordRequest, SendInvoiceEmailRequest, SmtpSettingCreate,
     BillOfMaterialCreate, BillOfMaterialLineCreate, WorkOrderCreate,
     ProjectCreate, ProjectTaskCreate,
     MaintenanceAssetCreate, MaintenanceWorkOrderCreate,
@@ -46,6 +49,11 @@ from .schemas import (
 router = APIRouter(prefix="/api/v1")
 def audit(db: Session, action: str, entity_type: str, entity_id: int | str, details: str = ""):
     db.add(AuditEvent(action=action, entity_type=entity_type, entity_id=str(entity_id), details=details))
+def require_open_period(db: Session, company_id: int, at_date):
+    blocked = find_blocked_period(db, company_id, at_date)
+    if blocked: raise HTTPException(409, f"Period {blocked.code} is {blocked.status}; postings on {at_date} are not allowed")
+    return blocked
+
 def require_approved_action(db: Session, approval_id: int | None, company_id: int, entity_type: str, entity_id: int | str, action: str):
     if not approval_id:
         raise HTTPException(409, f"Approved {action} record is required")
@@ -64,9 +72,6 @@ def invoice_view(obj: Invoice):
         "total_amount": str(obj.total_amount), "paid_amount": str(obj.paid_amount),
         "outstanding": str(obj.outstanding), "status": obj.status,
     }
-@router.get("/health")
-def health():
-    return {"status": "ok", "product": "PeaOps", "version": "0.8.2"}
 @router.post("/companies")
 def create_company(data: CompanyCreate, db: Session = Depends(get_db)):
     obj = Company(**data.model_dump())
@@ -100,6 +105,7 @@ def create_journal(data: JournalCreate, db: Session = Depends(get_db)):
 def post_journal(entry_id: int, approval_id: int = Query(..., ge=1), db: Session = Depends(get_db)):
     obj = db.get(JournalEntry, entry_id)
     if not obj: raise HTTPException(404, "Journal entry not found")
+    require_open_period(db, obj.company_id, obj.posting_date)
     require_approved_action(db, approval_id, obj.company_id, "journal_entry", obj.id, "journal_post")
     try: obj.post()
     except ValueError as exc: raise HTTPException(409, str(exc))
@@ -171,6 +177,7 @@ def create_invoice(data: InvoiceCreate, db: Session = Depends(get_db)):
 def post_invoice(invoice_id: int, db: Session = Depends(get_db)):
     obj = db.scalar(select(Invoice).options(selectinload(Invoice.lines)).where(Invoice.id == invoice_id))
     if not obj: raise HTTPException(404, "Invoice not found")
+    require_open_period(db, obj.company_id, obj.invoice_date)
     try: obj.post()
     except ValueError as exc: raise HTTPException(409, str(exc))
     audit(db, "post", f"{obj.invoice_type}_invoice", obj.id, obj.number); db.commit(); db.refresh(obj)
@@ -188,6 +195,7 @@ def create_payment(data: PaymentCreate, db: Session = Depends(get_db)):
     expected_type = "customer" if data.payment_type == "receipt" else "supplier"
     if not party or party.company_id != data.company_id: raise HTTPException(404, "Party not found for company")
     if party.party_type != expected_type: raise HTTPException(409, f"{data.payment_type.title()} requires a {expected_type}")
+    require_open_period(db, data.company_id, data.payment_date)
     obj = Payment(**data.model_dump(), unallocated_amount=data.amount)
     db.add(obj); db.flush(); audit(db, "post", data.payment_type, obj.id, obj.reference)
     db.commit(); db.refresh(obj)
@@ -530,6 +538,7 @@ def create_goods_receipt(order_id: int, data: GoodsReceiptCreate, db: Session = 
     from app.domain.procurement_rules import apply_receipt
     order = db.scalar(select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.id == order_id))
     if not order: raise HTTPException(404, "Purchase order not found")
+    require_open_period(db, order.company_id, data.receipt_date)
     if order.status not in {"confirmed", "partially_received"}: raise HTTPException(409, "Purchase order is not open for receipt")
     if data.warehouse_id:
         warehouse = db.get(Warehouse, data.warehouse_id)
@@ -593,6 +602,7 @@ def create_inventory_policy(data: InventoryPolicyCreate, db: Session = Depends(g
 def create_inventory_movement(data: InventoryMovementCreate, db: Session = Depends(get_db)):
     from app.domain.inventory_rules import apply_movement, signed_quantity, weighted_average, issue_value, validate_tracking
     ensure_inventory_entities(db, data.company_id, data.item_id, data.warehouse_id)
+    require_open_period(db, data.company_id, data.movement_date)
     policy = get_inventory_policy(db, data.company_id, data.item_id, data.warehouse_id)
     tracking = policy.tracking_mode if policy else "none"; allow_negative = policy.allow_negative if policy else False
     balance = get_inventory_balance(db, data.company_id, data.item_id, data.warehouse_id)
@@ -686,6 +696,7 @@ def post_stock_transfer(transfer_id: int, db: Session = Depends(get_db)):
     obj = db.scalar(select(StockTransfer).options(selectinload(StockTransfer.lines)).where(StockTransfer.id == transfer_id))
     if not obj: raise HTTPException(404, "Stock transfer not found")
     if obj.status != "draft": raise HTTPException(409, "Only draft transfers may be posted")
+    require_open_period(db, obj.company_id, obj.transfer_date)
     prepared=[]
     try:
         for line in obj.lines:
@@ -762,6 +773,7 @@ def deliver_sales_order(order_id: int, data: SalesDeliveryCreate, db: Session = 
     from app.domain.inventory_rules import apply_movement,issue_value
     order=db.scalar(select(SalesOrder).options(selectinload(SalesOrder.lines)).where(SalesOrder.id==order_id))
     if not order: raise HTTPException(404,"Sales order not found")
+    require_open_period(db, order.company_id, data.delivery_date)
     if order.status not in {"confirmed","partially_delivered"}: raise HTTPException(409,"Sales order is not open for delivery")
     warehouse=db.get(Warehouse,data.warehouse_id)
     if not warehouse or warehouse.company_id!=order.company_id: raise HTTPException(404,"Warehouse not found for company")
@@ -803,6 +815,7 @@ def integrated_sales_invoice(order_id: int, data: IntegratedSalesInvoiceCreate, 
     from app.domain.integration_rules import sales_journal
     order=db.scalar(select(SalesOrder).options(selectinload(SalesOrder.lines)).where(SalesOrder.id==order_id))
     if not order: raise HTTPException(404,"Sales order not found")
+    require_open_period(db, order.company_id, data.invoice_date)
     if order.status not in {"delivered","partially_delivered"}: raise HTTPException(409,"Sales order must have posted delivery before invoicing")
     event,replayed=integration_event(db,order.company_id,data.idempotency_key,"sales_invoice","sales_order",order.id)
     if replayed:return {"replayed":True,"event_id":event.id,"result_type":event.result_type,"result_id":event.result_id}
@@ -1102,7 +1115,7 @@ def login(data:LoginRequest,db:Session=Depends(get_db)):
     refresh=create_refresh_token();payload=decode_access_token(token,settings.secret_key)
     db.add(AuthSession(user_id=user.id,token_id=payload["jti"],refresh_token_hash=hash_refresh_token(refresh),expires_at=now+timedelta(days=7)))
     db.add(SecurityEvent(company_id=user.company_id,event_type="login",username=user.username,outcome="success"));db.commit()
-    return {"access_token":token,"refresh_token":refresh,"token_type":"bearer","expires_in":settings.access_token_minutes*60,"permissions":permissions}
+    return {"access_token":token,"refresh_token":refresh,"token_type":"bearer","expires_in":settings.access_token_minutes*60,"permissions":permissions,"must_change_password":user.must_change_password}
 
 # ---- MFA (TOTP) support ----
 @router.get("/auth/mfa/setup")
@@ -1136,7 +1149,7 @@ def reset_mfa(company_id: int, refresh_token: str, db: Session = Depends(get_db)
 @router.post("/admin/users")
 def create_user(data:UserCreate,db:Session=Depends(get_db),principal=Depends(require_permission("admin:users"))):
     if int(principal['company_id'])!=data.company_id:raise HTTPException(403,"Cross-company administration denied")
-    obj=User(company_id=data.company_id,username=data.username.strip().lower(),display_name=data.display_name,password_hash=hash_password(data.password))
+    obj=User(company_id=data.company_id,username=data.username.strip().lower(),display_name=data.display_name,password_hash=hash_password(data.password),must_change_password=True)
     db.add(obj);db.flush();db.add(SecurityEvent(company_id=data.company_id,event_type="user_create",username=obj.username,outcome="success",details=f"actor={principal['sub']}"));db.commit();db.refresh(obj)
     return {"id":obj.id,"username":obj.username,"display_name":obj.display_name,"active":obj.active}
 
@@ -1178,6 +1191,47 @@ def logout(data:LogoutRequest,db:Session=Depends(get_db)):
     session=db.scalar(select(AuthSession).where(AuthSession.refresh_token_hash==hash_refresh_token(data.refresh_token)))
     if session and not session.revoked_at:session.revoked_at=datetime.utcnow();db.commit()
     return {"revoked":bool(session)}
+
+@router.get("/admin/smtp-settings")
+def get_smtp_settings(db: Session = Depends(get_db), principal=Depends(require_permission("admin:smtp"))):
+    obj = db.scalar(select(SmtpSetting))
+    if not obj: return {"configured": False}
+    return {"configured": True, "host": obj.host, "port": obj.port, "username": obj.username, "from_address": obj.from_address, "use_tls": obj.use_tls, "active": obj.active, "updated_at": obj.updated_at}
+
+@router.put("/admin/smtp-settings")
+def update_smtp_settings(data: SmtpSettingCreate, db: Session = Depends(get_db), principal=Depends(require_permission("admin:smtp"))):
+    obj = db.scalar(select(SmtpSetting))
+    payload = data.model_dump()
+    if obj and not payload.get("password"):
+        # keep existing password when caller sends a blank password
+        payload.pop("password", None)
+    if not obj:
+        obj = SmtpSetting(**payload)
+        db.add(obj)
+    else:
+        for k, v in payload.items():
+            setattr(obj, k, v)
+    db.commit(); db.refresh(obj)
+    return {"configured": True, "host": obj.host, "port": obj.port, "username": obj.username, "from_address": obj.from_address, "use_tls": obj.use_tls, "active": obj.active}
+
+@router.get("/search")
+def search_endpoint(company_id: int, q: str = "", limit: int = 20, db: Session = Depends(get_db)):
+    from app.services.search import global_search
+    return global_search(db, company_id, q, limit)
+
+
+@router.post("/auth/change-password")
+def change_password(data:ChangePasswordRequest,db:Session=Depends(get_db)):
+    user=db.scalar(select(User).where(User.company_id==data.company_id,User.username==data.username.strip().lower()))
+    if not user or not user.active or not verify_password(data.current_password,user.password_hash):
+        raise HTTPException(401,"Current credentials invalid")
+    try:
+        validate_password(data.new_password)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
+    user.password_hash=hash_password(data.new_password);user.must_change_password=False;user.failed_login_count=0;user.locked_until=None;db.commit();db.refresh(user)
+    db.add(SecurityEvent(company_id=user.company_id,event_type="password_change",username=user.username,outcome="success"));db.commit()
+    return {"changed":True,"must_change_password":False}
 
 
 @router.post("/approvals")
@@ -1329,6 +1383,163 @@ def export_invoices_xlsx(company_id: int, db: Session = Depends(get_db)):
     return StreamingResponse(iter([buf.getvalue()]), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                              headers={"Content-Disposition": "attachment; filename=invoices.xlsx"})
 
+@router.get("/invoices/{invoice_id}/pdf")
+def export_invoice_pdf(invoice_id: int, db: Session = Depends(get_db)):
+    inv = db.scalar(select(Invoice).options(selectinload(Invoice.lines)).where(Invoice.id == invoice_id))
+    if not inv: raise HTTPException(404, "Invoice not found")
+    party = db.get(Party, inv.party_id)
+    company = db.get(Company, inv.company_id)
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.platypus import KeepInFrame
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm, topMargin=18*mm, bottomMargin=18*mm)
+    styles = getSampleStyleSheet()
+    title_style = styles['Title']
+    normal = styles['Normal']
+    body = []
+
+    # header
+    header = Table([
+        [Paragraph(f"<b>{company.name if company else 'PeaOps ERP'}</b>", title_style),
+         Paragraph(f"<b>INVOICE</b><br/><b>{inv.number}</b>", styles['Heading2'])],
+        [Paragraph(f"{company.code if company else ''} &nbsp;•&nbsp; {company.base_currency if company else 'INR'}", normal),
+         Paragraph(f"{inv.invoice_date} &nbsp;•&nbsp; Due: {inv.due_date}", normal)],
+    ], colWidths=[90*mm, 90*mm])
+    header.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE'),('BOTTOMPADDING',(0,0),(-1,-1),6)]))
+    body.append(header)
+    body.append(Spacer(1, 6))
+
+    # party
+    party_tbl = Table([
+        [Paragraph('<b>Bill To</b>', styles['Heading3'])],
+        [Paragraph(f"{party.name if party else 'Unknown Party'} ({party.code if party else ''})" if party else 'Unknown Party', normal)],
+        [Paragraph(f"GSTIN: {party.gstin if party and party.gstin else '—'}", normal)],
+    ], colWidths=[180*mm])
+    party_tbl.setStyle(TableStyle([('BOTTOMPADDING',(0,0),(-1,-1),2)]))
+    body.append(party_tbl)
+    body.append(Spacer(1, 6))
+
+    # lines table
+    headers = ['#', 'Description', 'Qty', 'Unit Price', 'Tax %', 'Net']
+    rows = [headers]
+    for idx, line in enumerate(inv.lines or []):
+        rows.append([str(idx + 1), line.description, str(line.quantity), f"{line.unit_price:.2f}", f"{line.tax_rate:.2f}", f"{line.net_amount:.2f}"])
+    rows.append(['', Paragraph('<b>Totals</b>', normal), '', '', '', ''])
+    rows.append(['', '', '', 'Subtotal', '', f"{inv.subtotal:.2f}"])
+    rows.append(['', '', '', 'Tax', '', f"{inv.tax_amount:.2f}"])
+    rows.append(['', '', '', Paragraph('<b>Total</b>', normal), '', Paragraph(f"<b>{inv.total_amount:.2f}</b>", normal)])
+    tbl = Table(rows, colWidths=[10*mm, 70*mm, 20*mm, 25*mm, 20*mm, 35*mm])
+    tbl.setStyle(TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.HexColor('#f0f4f8')),
+        ('GRID',(0,0),(-1,0),0.5,colors.HexColor('#dde3ea')),
+        ('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),
+        ('FONTNAME',(0,-3),(-1,-1),'Helvetica-Bold'),
+        ('LINEABOVE',(0,-3),(-1,-3),0.5,colors.HexColor('#a0aec0')),
+        ('LINEBELOW',(0,-1),(-1,-1),1,colors.HexColor('#4a5568')),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('PADDING',(0,0),(-1,-1),4),
+    ]))
+    body.append(tbl)
+    body.append(Spacer(1, 12))
+    body.append(Paragraph(f"Status: {inv.status}   •   Outstanding: {inv.outstanding}", normal))
+    body.append(Paragraph("Generated by PeaOps ERP", styles['Italic']))
+
+    doc.build(body)
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="application/pdf",
+                             headers={"Content-Disposition": f"attachment; filename=invoice-{inv.number}.pdf"})
+
+@router.post("/invoices/{invoice_id}/send-email")
+def send_invoice_email(invoice_id: int, data: SendInvoiceEmailRequest, db: Session = Depends(get_db), principal=Depends(require_permission("data:write"))):
+    inv = db.scalar(select(Invoice).options(selectinload(Invoice.lines)).where(Invoice.id == invoice_id))
+    if not inv: raise HTTPException(404, "Invoice not found")
+    from app.core.config import settings
+    import smtplib, ssl
+    from email.mime.base import MIMEBase
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.encoders import encode_base64
+
+    to = (data.to_email or "").strip()
+    if not to or "@" not in to:
+        raise HTTPException(400, "A valid to_email is required")
+    subj = data.subject or f"Invoice {inv.number} from PeaOps ERP"
+    txt = data.body or f"Please find attached Invoice {inv.number}.\nTotal: {inv.currency} {inv.total_amount}\nDate: {inv.invoice_date}\nDue: {inv.due_date}\n\nRegards"
+
+    env_smtp = settings.smtp_host
+    db_smtp = db.scalar(select(SmtpSetting)) if not env_smtp else None
+    use_db = not env_smtp and bool(db_smtp and db_smtp.host and db_smtp.active)
+    if not env_smtp and not use_db:
+        import urllib.parse
+        link = f"mailto:{to}?subject={urllib.parse.quote(subj)}&body={urllib.parse.quote(txt)}"
+        return {"sent": False, "reason": "smtp_not_configured", "mailto": link, "to": to, "subject": subj}
+
+    smtp_host = env_smtp or db_smtp.host
+    smtp_port = settings.smtp_port if env_smtp else db_smtp.port
+    smtp_user = settings.smtp_username if env_smtp else db_smtp.username
+    smtp_pass = settings.smtp_password if env_smtp else db_smtp.password
+    smtp_from = (settings.smtp_from or settings.smtp_username) if env_smtp else (db_smtp.from_address or db_smtp.username)
+    smtp_tls = settings.smtp_tls if env_smtp else db_smtp.use_tls
+
+    msg = MIMEMultipart()
+    msg['From'] = smtp_from or smtp_user or "peaops@localhost"
+    msg['To'] = to
+    msg['Subject'] = subj
+    msg.attach(MIMEText(txt, 'plain'))
+
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
+    party = db.get(Party, inv.party_id)
+    company = db.get(Company, inv.company_id)
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm, topMargin=18*mm, bottomMargin=18*mm)
+    styles = getSampleStyleSheet()
+    normal = styles['Normal']
+    body_items = []
+    header = Table([[Paragraph(f"<b>{company.name if company else 'PeaOps ERP'}</b>", styles['Title']), Paragraph(f"<b>INVOICE</b><br/><b>{inv.number}</b>", styles['Heading2'])]], colWidths=[90*mm, 90*mm])
+    header.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'MIDDLE')]))
+    body_items.append(header); body_items.append(Spacer(1, 6))
+    body_items.append(Paragraph(f"Bill To: {party.name if party else 'Unknown'} ({party.code if party else ''})", normal)); body_items.append(Spacer(1, 6))
+    rows = [['#', 'Description', 'Qty', 'Unit Price', 'Tax %', 'Net']]
+    for idx, line in enumerate(inv.lines or []):
+        rows.append([str(idx + 1), line.description, str(line.quantity), f"{line.unit_price:.2f}", f"{line.tax_rate:.2f}", f"{line.net_amount:.2f}"])
+    rows.append(['', '', '', '', '', f"Subtotal: {inv.subtotal}"])
+    rows.append(['', '', '', '', '', f"Tax: {inv.tax_amount}"])
+    rows.append(['', '', '', '', '', f"Total: {inv.total_amount}"])
+    tbl = Table(rows, colWidths=[10*mm, 70*mm, 20*mm, 25*mm, 20*mm, 35*mm])
+    tbl.setStyle(TableStyle([('GRID',(0,0),(-1,0),0.5,colors.HexColor('#dde3ea')),('BACKGROUND',(0,0),(-1,0),colors.HexColor('#f0f4f8')),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('VALIGN',(0,0),(-1,-1),'MIDDLE'),('PADDING',(0,0),(-1,-1),4)]))
+    body_items.append(tbl)
+    doc.build(body_items)
+    buf.seek(0)
+    part = MIMEBase('application', 'octet-stream')
+    part.set_payload(buf.read())
+    encode_base64(part)
+    part.add_header('Content-Disposition', f'attachment; filename="invoice-{inv.number}.pdf"')
+    msg.attach(part)
+
+    try:
+        context = ssl.create_default_context() if smtp_tls else None
+        with smtplib.SMTP(smtp_host, smtp_port, context=context) as server:
+            if smtp_user:
+                server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_from or smtp_user or "peaops@localhost", [to], msg.as_string())
+
+    except Exception as exc:
+        raise HTTPException(502, f"SMTP send failed: {exc}")
+
+    db.add(AuditEvent(action="email_invoice", entity_type="invoice", entity_id=str(inv.id), details=f"to={to}")); db.commit()
+    return {"sent": True, "to": to, "subject": subj}
 @router.get("/invoices/{invoice_id}/e-invoice.xml")
 def export_invoice_einvoice(invoice_id: int, db: Session = Depends(get_db)):
     inv = db.get(Invoice, invoice_id)
@@ -1352,6 +1563,118 @@ def export_invoice_einvoice(invoice_id: int, db: Session = Depends(get_db)):
            f"{lines}</Invoice>")
     return StreamingResponse(iter([xml]), media_type="application/xml",
                              headers={"Content-Disposition": f"attachment; filename=invoice-{inv.number}.xml"})
+
+def _document_pdf_response(db: Session, obj_type: str, obj_id: int):
+    Company_obj = None
+    Party_obj = None
+    if obj_type == 'sales_quote':
+        obj = db.scalar(select(SalesQuote).options(selectinload(SalesQuote.lines)).where(SalesQuote.id == obj_id))
+        doc_type = 'Sales Quote'
+        party_id = obj.customer_id if obj else None
+        party_label = 'Bill To'
+        doc_number = obj.number if obj else ''
+        issue_date = obj.quote_date if obj else ''
+        due_date = obj.valid_until if obj else ''
+        status = obj.status if obj else ''
+        subtotal = obj.subtotal if obj else 0
+        discount = obj.discount_amount if obj else 0
+        tax_amount = obj.tax_amount if obj else 0
+        total_amount = obj.total_amount if obj else 0
+    elif obj_type == 'sales_order':
+        obj = db.scalar(select(SalesOrder).options(selectinload(SalesOrder.lines)).where(SalesOrder.id == obj_id))
+        doc_type = 'Sales Order'
+        party_id = obj.customer_id if obj else None
+        party_label = 'Bill To'
+        doc_number = obj.number if obj else ''
+        issue_date = obj.order_date if obj else ''
+        due_date = obj.promised_date if obj else (issue_date if obj else '')
+        status = obj.status if obj else ''
+        subtotal = obj.subtotal if obj else 0
+        discount = obj.discount_amount if obj else 0
+        tax_amount = obj.tax_amount if obj else 0
+        total_amount = obj.total_amount if obj else 0
+    elif obj_type == 'purchase_order':
+        obj = db.scalar(select(PurchaseOrder).options(selectinload(PurchaseOrder.lines)).where(PurchaseOrder.id == obj_id))
+        doc_type = 'Purchase Order'
+        party_id = obj.supplier_id if obj else None
+        party_label = 'Ship To'
+        doc_number = obj.number if obj else ''
+        issue_date = obj.order_date if obj else ''
+        due_date = obj.promised_date if obj else (issue_date if obj else '')
+        status = obj.status if obj else ''
+        subtotal = obj.subtotal if obj else 0
+        discount = obj.discount_amount if obj else 0
+        tax_amount = obj.tax_amount if obj else 0
+        total_amount = obj.total_amount if obj else 0
+    else:
+        raise HTTPException(400, 'Unknown document type')
+    if not obj: raise HTTPException(404, f'{doc_type} not found')
+    Party_obj = db.get(Party, party_id)
+    Company_obj = db.get(Company, obj.company_id)
+    lines = []
+    for idx, line in enumerate(obj.lines or [], start=1):
+        net = Decimal(line.quantity) * Decimal(line.unit_price) * (Decimal('1') - Decimal(getattr(line, 'discount_percent', 0) or 0) / Decimal('100'))
+        lines.append([str(idx), line.description, str(line.quantity), f"{line.unit_price:.2f}", f"{line.tax_rate:.2f}", f"{net:.2f}"])
+    totals = [('Subtotal', f"{subtotal:.2f}"), ('Discount', f"{discount:.2f}"), ('Tax', f"{tax_amount:.2f}"), ('Total', f"{total_amount:.2f}")]
+    buf = build_document(
+        company_name=Company_obj.name if Company_obj else 'PeaOps ERP',
+        company_code=Company_obj.code if Company_obj else '',
+        company_currency=Company_obj.base_currency if Company_obj else 'INR',
+        party_name=Party_obj.name if Party_obj else 'Unknown',
+        party_code=Party_obj.code if Party_obj else '',
+        party_gstin=Party_obj.gstin if Party_obj else None,
+        party_label=party_label,
+        doc_number=doc_number,
+        document_type=doc_type,
+        issue_date=issue_date,
+        due_date=due_date,
+        status=status,
+        lines=lines,
+        totals=totals,
+    )
+    return {'buf': buf, 'file_name': f"{doc_type.replace(' ', '-').lower()}-{obj.number}.pdf", 'obj': obj, 'party': Party_obj, 'company': Company_obj}
+
+@router.get("/sales-quotes/{quote_id}/pdf")
+def export_quote_pdf(quote_id: int, db: Session = Depends(get_db)):
+    info = _document_pdf_response(db, 'sales_quote', quote_id)
+    headers = {"Content-Disposition": f"attachment; filename={info['file_name']}"}
+    return StreamingResponse(iter([info['buf'].getvalue()]), media_type="application/pdf", headers=headers)
+
+@router.get("/sales-orders/{order_id}/pdf")
+def export_order_pdf(order_id: int, db: Session = Depends(get_db)):
+    info = _document_pdf_response(db, 'sales_order', order_id)
+    return StreamingResponse(iter([info['buf'].getvalue()]), media_type="application/pdf",
+                             headers={"Content-Disposition": f"attachment; filename={info['file_name']}"})
+
+@router.get("/purchase-orders/{order_id}/pdf")
+def export_po_pdf(order_id: int, db: Session = Depends(get_db)):
+    info = _document_pdf_response(db, 'purchase_order', order_id)
+    return StreamingResponse(iter([info['buf'].getvalue()]), media_type="application/pdf",
+                             headers={"Content-Disposition": f"attachment; filename={info['file_name']}"})
+
+@router.post("/sales-quotes/{quote_id}/send-email")
+def send_quote_email(quote_id: int, data: SendInvoiceEmailRequest, db: Session = Depends(get_db), principal=Depends(require_permission("sales:write"))):
+    info = _document_pdf_response(db, 'sales_quote', quote_id)
+    body = data.body or f"Please find attached quote {info['obj'].number}.\nTotal: {info['obj'].currency} {info['obj'].total_amount}\nValid until: {info['obj'].valid_until}\n\nRegards"
+    subj = data.subject or f"Sales Quote {info['obj'].number} from PeaOps ERP"
+    from app.services.email_sender import send_email
+    return send_email(db, info['company'].name, info['obj'].number, 'Quote', data.to_email, subj, body, info['buf'].getvalue(), info['file_name'])
+
+@router.post("/sales-orders/{order_id}/send-email")
+def send_order_email(order_id: int, data: SendInvoiceEmailRequest, db: Session = Depends(get_db), principal=Depends(require_permission("sales:write"))):
+    info = _document_pdf_response(db, 'sales_order', order_id)
+    body = data.body or f"Please find attached sales order {info['obj'].number}.\nTotal: {info['obj'].currency} {info['obj'].total_amount}\n\nRegards"
+    subj = data.subject or f"Sales Order {info['obj'].number}"
+    from app.services.email_sender import send_email
+    return send_email(db, info['company'].name, info['obj'].number, 'Sales Order', data.to_email, subj, body, info['buf'].getvalue(), info['file_name'])
+
+@router.post("/purchase-orders/{order_id}/send-email")
+def send_po_email(order_id: int, data: SendInvoiceEmailRequest, db: Session = Depends(get_db), principal=Depends(require_permission("procurement:write"))):
+    info = _document_pdf_response(db, 'purchase_order', order_id)
+    body = data.body or f"Please find attached purchase order {info['obj'].number}.\nTotal: {info['obj'].currency} {info['obj'].total_amount}\nPromised: {info['obj'].promised_date}\n\nRegards"
+    subj = data.subject or f"Purchase Order {info['obj'].number}"
+    from app.services.email_sender import send_email
+    return send_email(db, info['company'].name, info['obj'].number, 'Purchase Order', data.to_email, subj, body, info['buf'].getvalue(), info['file_name'])
 
 @router.get("/landed-costs")
 def list_landed_costs(company_id: int, db: Session = Depends(get_db)):

@@ -15,5 +15,5 @@ def main():
         role=db.scalar(select(Role).where(Role.company_id==company.id,Role.code=='company_admin'))
         if not role:
             role=Role(company_id=company.id,code='company_admin',name='Company Administrator',system_role=True);db.add(role);db.flush();db.add(RolePermission(role_id=role.id,permission='admin:*'))
-        user=User(company_id=company.id,username=username,display_name=display,password_hash=hash_password(password));db.add(user);db.flush();db.add(UserRole(user_id=user.id,role_id=role.id));db.commit();print(f'Created administrator {username}.')
+        user=User(company_id=company.id,username=username,display_name=display,password_hash=hash_password(password),must_change_password=True);db.add(user);db.flush();db.add(UserRole(user_id=user.id,role_id=role.id));db.commit();print(f'Created administrator {username}.')
 if __name__=='__main__':main()

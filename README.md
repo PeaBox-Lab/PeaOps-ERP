@@ -37,6 +37,19 @@ powershell -ExecutionPolicy Bypass -File deployment\server\install.ps1 -SiteDoma
 Open `https://<your-domain>/` — sign in with company `1` / `admin` / `Admin@123456` (change it!).
 Verify with `curl -k https://localhost/api/v1/health/ready`.
 
+## Local UI development
+
+With the Docker stack up (or just the demo proxy), run the Vite dev server:
+
+```bash
+docker compose -f deployment/server/docker-compose.production.yml -f deployment/server/docker-compose.local.yml up -d demo
+cd frontend && npm run dev
+```
+
+UI: http://localhost:5173 · `/api` and `/metrics` are proxied to the local stack. After changing `vite.config.ts`, restart the dev server.
+
+**Invoices:** download a PDF or send by email from the Invoices page → Action tab. If SMTP isn't configured, the app returns a `mailto:` link instead of failing silently.
+
 ## Documentation
 
 - Getting started in the web UI: `docs/USER_GUIDE.md` ("Getting started (v0.8.2 web UI)")

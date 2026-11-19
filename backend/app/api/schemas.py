@@ -356,6 +356,31 @@ class LogoutRequest(BaseModel):
     refresh_token: str = Field(min_length=32, max_length=300)
 
 
+class ChangePasswordRequest(BaseModel):
+    company_id: int
+    username: str
+    current_password: str
+    new_password: str = Field(min_length=12, max_length=200)
+
+
+class SendInvoiceEmailRequest(BaseModel):
+    to_email: str = Field(..., min_length=3, max_length=320)
+    subject: str | None = None
+    body: str | None = None
+
+
+class SmtpSettingCreate(BaseModel):
+    host: str = ""
+    port: int = 587
+    username: str = ""
+    password: str = ""
+    from_address: str = ""
+    use_tls: bool = True
+    active: bool = False
+    use_tls: bool = True
+    active: bool = False
+
+
 class ApprovalCreate(BaseModel):
     company_id: int
     entity_type: str = Field(min_length=2, max_length=50)

@@ -9,7 +9,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 export type FieldSpec = {
   key: string; label: string;
-  type?: 'text' | 'number' | 'date' | 'select' | 'textarea' | 'checkbox';
+  type?: 'text' | 'number' | 'date' | 'select' | 'textarea' | 'checkbox' | 'password';
   required?: boolean; def?: string; placeholder?: string;
   options?: Array<[string, string]>;
   optionsFrom?: { path: string; value: string; label: string; filterKey?: string; filterValue?: string };
@@ -97,6 +97,10 @@ export default function SpecForm({ spec, resolvePath, recordId, onDone }: { spec
       if (spec.transform) Object.assign(payload, spec.transform(payload));
       const path = resolvePath(record);
       const res = await api<Row>(path, { method: 'POST', body: JSON.stringify(payload) });
+      if (res && typeof res === 'object' && typeof (res as Record<string, unknown>).mailto === 'string') {
+        const mailto = String((res as Record<string, unknown>).mailto);
+        const m = 'SMTP not configured — opening your mail client…'; setMsg(m); onDone(m); window.open(mailto, '_self'); return;
+      }
       const m = msgFor(res, path); setMsg(m); onDone(m);
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); } finally { setBusy(false); }
   };

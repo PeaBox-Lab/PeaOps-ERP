@@ -45,7 +45,7 @@ A: Administration → Approvals → Action → Approve request (you must not be 
 ## Dashboard & reports
 
 **Q: The Overview shows "Cannot reach the API".**
-A: The backend is down or on another port. Check the server (`docker compose ps`, `curl https://localhost/api/v1/health/ready`). The frontend dev server needs its backend on :8000.
+A: The dev proxy targets the local demo proxy on :8080 by default — ensure the Docker stack is up (`docker compose -f deployment/server/docker-compose.production.yml -f deployment/server/docker-compose.local.yml up -d demo`), or run the backend directly on :8000 and set the proxy target in `frontend/vite.config.ts`. After changing `vite.config.ts`, restart the dev server.
 
 **Q: KPI tiles show zeros.**
 A: They read live from the database — usually the seed data is empty (no invoices/movements yet). Create a document and refresh.
@@ -74,7 +74,7 @@ A: Yes — see `docs/operations/HOSTING_AND_CLIENT_ONBOARDING.md` for multi-comp
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| 502 / blank page | web/api container down | `docker compose up -d`, check health endpoints |
+| 502 / blank page | web/api container down | `docker compose ps`, check health endpoints (`curl -k https://localhost/api/v1/health/ready`); UI dev server proxies /api to the local demo proxy on :8080 |
 | Sign-in fails for password | wrong company/user/password | use company `1`, user `admin`; reset via bootstrap script |
 | Everything is zero | empty seed DB | seed demo or enter real documents |
 | 403 everywhere | missing permissions | ask admin for the role/permission |

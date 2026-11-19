@@ -11,7 +11,11 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here
 
 Write-Host "==> Checking Docker Desktop"
-$docker = "$env:ProgramFiles\Docker\Docker\resources\bin\docker.exe"
+$dockerCandidates = @(
+  "$env:ProgramFiles\Docker\Docker\resources\bin\docker.exe",
+  "$env:LOCALAPPDATA\Programs\DockerDesktop\resources\bin\docker.exe"
+)
+$docker = $dockerCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not (Get-Command docker -ErrorAction SilentlyContinue) -and -not (Test-Path $docker)) {
   Write-Host "==> Installing Docker Desktop via winget"
   winget install -e --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements
@@ -37,6 +41,20 @@ if (-not (Test-Path .env)) {
   Write-Host ".env created (secrets are git-ignored)."
 }
 
+Write-Host "==> Selecting proxy ports"
+$envLines = Get-Content .env
+$needHTTP = -not ($envLines -match '^HTTP_PORT=')
+$needHTTPS = -not ($envLines -match '^HTTPS_PORT=')
+if ($needHTTP -and $needHTTPS) {
+  # Port 80 is usually taken by Windows/WSL on dev boxes; use 8080/8443 locally
+  Add-Content .env "HTTP_PORT=8080"
+  Add-Content .env "HTTPS_PORT=8443"
+}
+$envLines = Get-Content .env
+$httpPort = ($envLines -match '^HTTP_PORT=' | Select-Object -First 1) -replace '^HTTP_PORT=', ''
+$httpsPort = ($envLines -match '^HTTPS_PORT=' | Select-Object -First 1) -replace '^HTTPS_PORT=', ''
+Write-Host "Proxy ports: HTTP=$httpPort  HTTPS=$httpsPort"
+
 Write-Host "==> Generating self-signed certs (if missing)"
 if (-not (Test-Path certs\fullchain.pem)) {
   New-Item -ItemType Directory -Force certs | Out-Null
@@ -46,7 +64,14 @@ if (-not (Test-Path certs\fullchain.pem)) {
 }
 
 Write-Host "==> Preflight"
-sh scripts/preflight.sh
+$envContent = Get-Content .env -Raw
+foreach ($name in @("POSTGRES_PASSWORD","PEAOPS_SECRET_KEY","PEAOPS_ALLOWED_ORIGINS")) {
+  if ($envContent -notmatch "(?m)^$name=\S") { throw "$name is required in .env" }
+}
+if ($envContent -notmatch '(?m)^PEAOPS_SECRET_KEY=.{32,}') { throw "PEAOPS_SECRET_KEY must be at least 32 characters" }
+if ($envContent -notmatch '(?m)^PEAOPS_ALLOWED_ORIGINS=https://') { throw "PEAOPS_ALLOWED_ORIGINS must start with https://" }
+if (-not (Get-Command docker -ErrorAction SilentlyContinue) -and -not (Test-Path $docker)) { throw "docker CLI not found" }
+Write-Host "PeaOps server preflight passed."
 
 Write-Host "==> Building and starting the stack"
 docker compose -f docker-compose.production.yml build
